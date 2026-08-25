@@ -180,8 +180,17 @@ def check_digest_recompute(inp):
 
 
 def check_canonical_bytes(inp):
+    # `payload_text` carries the payload as raw JSON text where the distinction under
+    # test cannot survive a JSON load in every language (a JS JSON.parse collapses the
+    # token 2.0 to the value 2, so a value-carrying vector cannot express an
+    # integer-valued float). Key presence, not sentinel, per the cross-language guard
+    # convention. Python's json preserves float-ness, so the existing domain guard in
+    # canonical() is the enforcement; the TS engine enforces the same boundary at the
+    # token level. Boundary: a number TOKEN with a fraction or exponent part is outside
+    # the digest domain even when integer-valued.
     try:
-        got = canonical(inp["payload"])
+        payload = json.loads(inp["payload_text"]) if "payload_text" in inp else inp["payload"]
+        got = canonical(payload)
     except ValueError as exc:
         return "reject", "number_domain_reject", str(exc)
     if got != inp["claimed_canonical"]:

@@ -1008,6 +1008,29 @@ vectors = [
             ],
         },
     },
+    # Integer-valued float token pair (p25/n35): found by @Rul1an's mutation-adequacy run
+    # against this corpus (issue #4, 2026-08-24) — the corpus's only number-domain vector
+    # (n10) carries 1.1, so an engine weakened to accept integer-valued floats survives the
+    # whole suite. Underneath the corpus gap sat a live cross-engine divergence: Python's
+    # json preserves 2.0 as a float and canonical() rejects it; JSON.parse collapses the
+    # same wire bytes to the integer 2 and the TS engine accepted. The pair therefore
+    # carries the payload as RAW TEXT (`payload_text`) — the only form in which the
+    # distinction reaches both engines — and pins the boundary at the TOKEN class.
+    {
+        "id": "p25-integer-token-in-text",
+        "kind": "canonical_bytes",
+        "expect": "valid",
+        "description": "Accepting twin of n35, and the accepting pin of the payload_text pathway itself: the same wire bytes with a plain integer token. {\"amount\": 2} parses to an integer in every language, canonicalizes to {\"amount\":2}, and is valid. An engine that unconditionally rejects the raw-text pathway fails here, per the two-sided gate.",
+        "input": {"payload_text": '{"amount": 2}', "claimed_canonical": '{"amount":2}'},
+    },
+    {
+        "id": "n35-integer-valued-float-token",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "number_domain_reject",
+        "description": "A number token with a fraction part whose VALUE is an integer: {\"amount\": 2.0}. The digest-domain boundary is the token class, not the value — JSON.parse collapses 2.0 to 2, so an engine reading parsed values sees a valid integer while an engine preserving float-ness rejects, and the two sign different verdicts over identical wire bytes. Rejecting the token class is the only deterministic cross-language rule. Kills the mutant that accepts integer-valued floats (survivor of the pre-p25 corpus, @Rul1an issue #4); the shipped Python engine already rejected, the shipped TS engine accepted until this pin.",
+        "input": {"payload_text": '{"amount": 2.0}', "claimed_canonical": '{"amount":2}'},
+    },
 ]
 
 manifest = {
@@ -1015,7 +1038,7 @@ manifest = {
     "version": "0.4.0",
     "layer": "evidence-record",
     "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core — a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
-    "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON numbers rejected (number_domain_reject); duplicate object names rejected",
+    "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) — the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected",
     "content_address": "keccak256(utf8(canonical(payload)))",
     "chain_link": "keccak256(artifact_digest || prev_digest || seq_uint64_be) — wire form of a genesis predecessor is null; 32 zero bytes is the hashing-time substitution for null",
     "chain_set": "records chain raw artifact digests via prev pointers (genesis prev = null); head.digest equals the final record's artifact digest; completeness = every seq 1..head.seq present; where a record presents a link, it must recompute as keccak256(artifact || prev || seq_be8)",

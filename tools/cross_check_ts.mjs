@@ -113,6 +113,16 @@ function checkObjectBinding(carrier, digestField, presented, { objectRequired = 
   return got === committed ? ["valid", null] : ["reject", "binding_reject"];
 }
 
+function parseDigestDomainText(text) {
+  return JSON.parse(text, (_key, value, context) => {
+    if (typeof value === "number" && context && typeof context.source === "string"
+        && /[.eE]/.test(context.source)) {
+      throw new NumberDomainError("non-integer JSON number token in the digest domain");
+    }
+    return value;
+  });
+}
+
 // ------------------------------------------------------------------------ vector kinds
 const CHECKS = {
   digest_recompute(inp) {
@@ -130,7 +140,15 @@ const CHECKS = {
   canonical_bytes(inp) {
     let got;
     try {
-      got = canon(inp.payload);
+      // "payload_text" in inp (key presence, never a value sentinel): raw-text pathway
+      // for distinctions JSON.parse erases. The digest-domain boundary is the number
+      // TOKEN class: a token with a fraction or exponent part (2.0, 1e2) rejects even
+      // when integer-valued, because JSON.parse collapses it to an integer Number and
+      // the two engines would otherwise diverge on the same wire bytes (Python's json
+      // preserves float-ness and its canonical() already rejects). Enforced here at the
+      // token level via JSON.parse source access (Node >= 21).
+      const payload = "payload_text" in inp ? parseDigestDomainText(inp.payload_text) : inp.payload;
+      got = canon(payload);
     } catch (e) {
       if (e instanceof NumberDomainError) return ["reject", "number_domain_reject"];
       throw e;
