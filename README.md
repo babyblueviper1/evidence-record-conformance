@@ -23,6 +23,17 @@ All three are proposed normatively in the open compliance-fields extension PR
 ([x402-foundation/x402#2853](https://github.com/x402-foundation/x402/pull/2853), under
 review); this suite makes them executable.
 
+**Externally exercised.** The corpus has been executed and attacked from outside this
+repository, on the record: byte-identical reproduction from the IETF `web-bot-auth` list
+([Songbo Bu, 2026-08-10](https://mailarchive.ietf.org/arch/msg/web-bot-auth/8JVz3WDXgmS9W71Az_oALXM5cW4/) —
+verifier, TypeScript cross-check, 258-case differential and byte-identical regeneration, against
+`46ad663`); a published mutation-adequacy re-grade by
+[@Rul1an](https://github.com/tersignhq/evidence-record-conformance/issues/1#issuecomment-5416529673)
+(2026-08-25, at `0e560c1`: 11 declared mutants killed, 0 survived, 1 declared equivalent); the
+anchor-preimage relation recomputed from a separate implementation
+([#3](https://github.com/tersignhq/evidence-record-conformance/issues/3)); and four vector classes
+contributed by external authors ([CONTRIBUTORS.md](CONTRIBUTORS.md)).
+
 ## Run
 
 ```
@@ -42,9 +53,11 @@ the verifier discriminates, not merely accepts.
 | content address (keccak256 over RFC 8785) | p1 (live), p3 | n1 value drift | `recompute_mismatch` |
 | canonical bytes | p2 | n2 **hoisted integer keys**, n12 **code-point key order** | `canonicalization_reject` |
 | number domain (I-JSON integers) | p12 (2^53−1 boundary), p13 (**decimal string** beside integer — spec-lockstep) | n10 **float**, n11 integer past 2^53−1 | `number_domain_reject` |
+| number token in the digest domain | p25 (**integer token** via raw `payload_text`) | n35 **integer-valued float token** (wire bytes `2.0` — `JSON.parse` collapses it to `2`, the cross-engine divergence the pair closes) | `number_domain_reject` |
 | supplementary-plane key order (UTF-16 vs code point) | p14 | n12 | `canonicalization_reject` |
 | chain link (artifact ∥ prev ∥ seq) | p4 | n3 wrong predecessor | `continuity_reject` |
 | per-seller set continuity + completeness | p6 (with per-record links) | n4 **silently omitted record**, n17 **renumbered omission** (stale link) | `completeness_reject`, `continuity_reject` |
+| witnessed inclusion vs completeness | p24 (**witnessed complete set**) | n34 **witnessed inclusion is not completeness** | `completeness_reject` |
 | anchored existence bound | p5 (live) | n5 truncated/substituted head | `existence_reject` |
 | economic-phase separation | p7 | n6 funding-as-delivery, n18 **unrecognized phase** | `phase_reject` |
 | offer binding (receipt commits to the accepted offer's canonical digest) | p15 | n19 **offer substitution** (same resource/network, different amount/payTo) | `binding_reject` |
