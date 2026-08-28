@@ -156,6 +156,18 @@ Keccak-256. The conformance property is the algorithm-parametric relation “mat
 object accepts; missing or mismatching commitment rejects”, not a prescription of a digest,
 canonicalization, or field location for AUEC, MCP, or another protocol.
 
+## Number-token class on integer fields (v0.5.1)
+
+`JSON.parse` collapses the wire token `3.0` to the integer `3`; Python's `json` keeps a float, and
+every integer predicate in `verify.py` rejects it. Until v0.5.1 the two engines therefore diverged on
+the same bytes for a fractional or exponent `seq` token — a real parity fork, found by an adversarial
+review of v0.5.0. The suite's number-domain boundary has always been the TOKEN class (p25/n35 pin it
+for canonical bytes); n38 pins the same boundary for sequence numbers, and the TypeScript engine now
+loads every vector and differential case through a reviver that reads integer fields at the token
+level (Node ≥ 21 source access), so both engines reject `3.0` / `3e0` wherever an integer is
+required. Additive: every pre-0.5.1 vector is byte-identical; the differential battery gained
+float-token mutations on `head.seq` and `records[].seq` for both chain kinds.
+
 ## Commitment accumulator (v0.5.0)
 
 A committed head binds the **last** record only. Two prefixes that end in the same record —

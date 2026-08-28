@@ -118,6 +118,24 @@ function checkObjectBinding(carrier, digestField, presented, { objectRequired = 
   return got === committed ? ["valid", null] : ["reject", "binding_reject"];
 }
 
+// v0.5.1 — number-TOKEN class on integer fields (B25). JSON.parse collapses the wire token
+// `3.0` (or `3e0`) to the integer Number 3, while Python's json keeps it a float and every
+// integer predicate in verify.py (`_is_seq`, the anchor position/covered/attested checks)
+// rejects it. Loading vectors and differential cases through this reviver maps any number
+// whose SOURCE token carries a fraction or exponent part to NaN, so `Number.isInteger`
+// fails exactly where Python's `isinstance(x, int)` fails and both engines agree on the same
+// wire bytes. (Node >= 21 reviver source access; the canonical_bytes raw-text pathway below
+// keeps its own, throwing, variant because that kind names the reason `number_domain_reject`.)
+export function parseVectorText(text) {
+  return JSON.parse(text, (_key, value, context) => {
+    if (typeof value === "number" && context && typeof context.source === "string"
+        && /[.eE]/.test(context.source)) {
+      return Number.NaN;
+    }
+    return value;
+  });
+}
+
 function parseDigestDomainText(text) {
   return JSON.parse(text, (_key, value, context) => {
     if (typeof value === "number" && context && typeof context.source === "string"
@@ -367,7 +385,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 
   const manifest = JSON.parse(readFileSync(join(ROOT, "MANIFEST.json"), "utf-8"));
   for (const entry of manifest.vectors) {
-    const vector = JSON.parse(readFileSync(join(ROOT, "vectors", entry.file), "utf-8"));
+    const vector = parseVectorText(readFileSync(join(ROOT, "vectors", entry.file), "utf-8"));
     let verdict, reason;
     try {
       [verdict, reason] = CHECKS[vector.kind](vector.input);

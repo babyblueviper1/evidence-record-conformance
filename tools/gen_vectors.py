@@ -1186,11 +1186,32 @@ vectors = [
             ],
         },
     },
+    # ----------------------------------- v0.5.1: number-TOKEN class on integer fields (B25)
+    # p6's complete set with head.seq written as the wire token `3.0`. JSON.parse collapses it
+    # to 3 and a TS engine would call the set complete; Python's json keeps a float and the
+    # integer predicate rejects. The suite's number-domain boundary is the TOKEN class (p25/n35
+    # pinned it for canonical bytes); this vector pins the same boundary for sequence numbers,
+    # and the TS engine reads integer fields at the token level so both engines agree.
+    {
+        "id": "n38-chain-set-float-seq-token",
+        "kind": "chain_set",
+        "expect": "reject",
+        "reason": "completeness_reject",
+        "description": "Number-token class on an integer field. p6's complete, continuous set with head.seq written as the JSON token 3.0 (integer-valued, non-integer token). A JSON.parse-based engine collapses 3.0 to 3 and calls the set complete; a json-module engine keeps a float and the integer predicate rejects. The suite's boundary is the token class, not the value (p25/n35 pin it for canonical bytes): a sequence number is an integer TOKEN, so this set rejects in both engines. Falsifying input authored against the pre-0.5.1 TS engine, which returned valid on these bytes.",
+        "input": {
+            "head": {"seq": 3.0, "digest": d[2]},
+            "records": [
+                {"seq": 1, "artifact_digest": d[0], "prev_digest": None, "link": links[0]},
+                {"seq": 2, "artifact_digest": d[1], "prev_digest": d[0], "link": links[1]},
+                {"seq": 3, "artifact_digest": d[2], "prev_digest": d[1], "link": links[2]},
+            ],
+        },
+    },
 ]
 
 manifest = {
     "suite": "evidence-record-conformance",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "layer": "evidence-record",
     "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core — a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
     "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) — the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected",

@@ -130,6 +130,14 @@ def mutations(kind, inp):
             if records:
                 del records[-1]
 
+        def _float_seq_first(records):
+            if records and isinstance(records[0].get("seq"), int):
+                records[0]["seq"] = float(records[0]["seq"])  # wire token `1.0` (v0.5.1, B25)
+
+        with_records(_float_seq_first, "records[0].seq=float-token")
+        if isinstance(inp.get("head"), dict) and isinstance(inp["head"].get("seq"), int):
+            with_head("seq", float(inp["head"]["seq"]), "head.seq=float-token")
+            with_head("seq", float(inp["head"]["seq"]), "head.seq=float-token@commitment", acc_kind)
         with_records(_drop_middle, "records=dropped-middle")
         with_records(_renumber_last, "records=renumbered-last")
         with_records(_swap_2_3, "records=swapped-2-3")

@@ -1,6 +1,6 @@
 {
   "suite": "evidence-record-conformance",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "layer": "evidence-record",
   "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core \u2014 a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
   "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) \u2014 the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected",
@@ -372,6 +372,12 @@
       "kind": "chain_commitment",
       "expect": "reject",
       "reason": "continuity_reject"
+    },
+    {
+      "file": "n38-chain-set-float-seq-token.json",
+      "kind": "chain_set",
+      "expect": "reject",
+      "reason": "completeness_reject"
     }
   ]
 }

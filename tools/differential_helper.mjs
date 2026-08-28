@@ -3,9 +3,10 @@
 // not execute on import) and prints [verdict, reason] pairs as JSON on stdout. The
 // exception convention mirrors both corpus runners: a throwing check is a malformed input.
 import { readFileSync } from "node:fs";
-import { CHECKS } from "./cross_check_ts.mjs";
+import { CHECKS, parseVectorText } from "./cross_check_ts.mjs";
 
-const cases = JSON.parse(readFileSync(process.argv[2], "utf-8"));
+// v0.5.1: token-level integer guard, so a `3.0` seq emitted by json.dumps reaches the checks as NaN
+const cases = parseVectorText(readFileSync(process.argv[2], "utf-8"));
 const out = cases.map((c) => {
   try {
     const [verdict, reason] = CHECKS[c.kind](c.input);
