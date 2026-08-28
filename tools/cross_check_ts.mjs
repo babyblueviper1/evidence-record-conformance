@@ -34,6 +34,11 @@ const GENESIS_PREV = `0x${"0".repeat(64)}`;
 const chainLink = (artifact, prev, seq) =>
   keccak256(concatHex([artifact, prev ?? GENESIS_PREV, numberToHex(seq, { size: 8 })]));
 const sha256hex = (hex) => "0x" + createHash("sha256").update(Buffer.from(hex.slice(2), "hex")).digest("hex");
+// Chain-commitment accumulator (v0.5.0) — mirrors verify.py's ACC_GENESIS / chain_acc_step:
+// a tagged seed (utf8 of the schema string, never the zero link-genesis sentinel), then
+// keccak256(acc || link) over raw 64 bytes, acc first.
+const ACC_GENESIS = keccak256(stringToHex("tersign-chain-commitment-v1"));
+const chainAccStep = (acc, link) => keccak256(concatHex([acc, link]));
 
 // -------------------------------------------------------- identifier normalization
 const ADDR_RE = /^0x[0-9a-f]{40}$/;
@@ -203,6 +208,25 @@ const CHECKS = {
       prev = artifact;
     }
     return prev === headDigest ? ["valid", null] : ["reject", "continuity_reject"];
+  },
+  // Mirrors verify.py's check_chain_commitment: chain_set first (any non-valid verdict
+  // propagates unchanged), then head.acc must parse and must equal the fold of
+  // keccak256(acc || link) over the RECOMPUTED links (prev = previous artifact digest) from
+  // ACC_GENESIS. Same branch order, same reason codes.
+  chain_commitment(inp) {
+    const [verdict, reason] = CHECKS.chain_set(inp);
+    if (verdict !== "valid") return [verdict, reason];
+    const claimed = normDigest(inp.head.acc);
+    if (claimed === null) return ["reject", "continuity_reject"];
+    const records = [...inp.records].sort((a, b) => a.seq - b.seq);
+    let acc = ACC_GENESIS;
+    let prev = null;
+    for (const r of records) {
+      const artifact = normDigest(r.artifact_digest);
+      acc = chainAccStep(acc, chainLink(artifact, prev, r.seq));
+      prev = artifact;
+    }
+    return acc === claimed ? ["valid", null] : ["reject", "continuity_reject"];
   },
   anchor_relation(inp) {
     const subject = normDigest(inp.subject_digest);

@@ -10,8 +10,10 @@ while every run stayed green. Reported as a limit of the corpus cross-check by @
 
 This harness is the non-transitive control: every corpus vector PLUS a deterministic
 off-corpus mutation battery at fork-prone keys (explicit nulls, declared/derivable conflicts,
-containers of the wrong shape), run through BOTH engines, verdict and reason-code compared
-directly. Any divergence exits non-zero and prints the offending input.
+containers of the wrong shape; since v0.5.0 also the chain kinds — dropped, renumbered,
+swapped and truncated records, an off-by-one head, and every plausible wrong accumulator
+fold at `head.acc`), run through BOTH engines, verdict and reason-code compared directly.
+Any divergence exits non-zero and prints the offending input.
 
 Run:  npm i viem  (repo root), then  python3 tools/differential.py
 """
@@ -25,7 +27,8 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from verify import CHECKS, digest_of  # noqa: E402
+from verify import CHECKS, digest_of, chain_link_digest, chain_acc_step, ACC_GENESIS  # noqa: E402
+from keccak import keccak256  # noqa: E402
 
 
 def py_verdict(kind, inp):
@@ -37,21 +40,130 @@ def py_verdict(kind, inp):
         return ["malformed", None]
 
 
+def _chain_rows(inp):
+    """The chain rows of a chain_set / chain_commitment input in seq order, or None when the
+    input is not shaped for a fold (the fold-variant mutations need parseable digests and
+    integer seqs; a shape-broken input is already covered by the shape mutations)."""
+    records = inp.get("records")
+    if not isinstance(records, list) or not records:
+        return None
+    rows = []
+    for r in records:
+        if not isinstance(r, dict) or not isinstance(r.get("seq"), int) or isinstance(r.get("seq"), bool):
+            return None
+        if not 1 <= r["seq"] < 2**64:
+            return None
+        a = r.get("artifact_digest")
+        if not isinstance(a, str) or len(a) != 66 or not a.startswith("0x"):
+            return None
+        try:
+            bytes.fromhex(a[2:])
+        except ValueError:
+            return None
+        rows.append((r["seq"], a.lower()))
+    return sorted(rows)
+
+
+def _fold(rows, seed, step):
+    """Fold `step(acc, link_or_artifact)` over the presented rows with prev = previous artifact."""
+    acc, prev = seed, None
+    for seq, artifact in rows:
+        acc = step(acc, chain_link_digest(artifact, prev, seq), artifact)
+        prev = artifact
+    return acc
+
+
 def mutations(kind, inp):
     """Deterministic off-corpus battery. Every case is representable JSON — the absent-key
-    case (the only honest 'undefined') is simply a case where the key is not added."""
+    case (the only honest 'undefined') is simply a case where the key is not added.
+    Yields (tag, kind, input): a mutation may re-target the input at a sibling kind (the
+    chain_set → chain_commitment promotions) so the two predicates are compared over the
+    same bytes."""
     out = []
 
     def with_key(key, value, tag):
         m = json.loads(json.dumps(inp))
         m[key] = value
-        out.append((tag, m))
+        out.append((tag, kind, m))
 
     def without_key(key, tag):
         if key in inp:
             m = json.loads(json.dumps(inp))
             del m[key]
-            out.append((tag, m))
+            out.append((tag, kind, m))
+
+    if kind in ("chain_set", "chain_commitment"):
+        # First off-corpus coverage for the chain kinds (v0.5.0). The structural shape
+        # mutations run under BOTH kinds — chain_commitment propagates chain_set's verdict
+        # unchanged, so any fork there shows up twice — and the accumulator variants pin
+        # every plausible wrong fold at the one key the accumulator lives on. For chain_set
+        # inputs the accumulator cases are promoted to chain_commitment, so the same bytes
+        # are compared under both predicates.
+        acc_kind = "chain_commitment"
+
+        def with_head(key, value, tag, target=kind):
+            m = json.loads(json.dumps(inp))
+            if isinstance(m.get("head"), dict):
+                m["head"][key] = value
+                out.append((tag, target, m))
+
+        def with_records(fn, tag):
+            m = json.loads(json.dumps(inp))
+            if isinstance(m.get("records"), list) and all(isinstance(r, dict) for r in m["records"]):
+                fn(m["records"])
+                out.append((tag, kind, m))
+
+        def _drop_middle(records):
+            if len(records) >= 2:
+                del records[len(records) // 2]
+
+        def _renumber_last(records):
+            if records and isinstance(records[-1].get("seq"), int):
+                records[-1]["seq"] += 1
+
+        def _swap_2_3(records):
+            if len(records) >= 3:
+                records[1], records[2] = records[2], records[1]
+                records[1]["seq"], records[2]["seq"] = records[2]["seq"], records[1]["seq"]
+
+        def _truncate(records):
+            if records:
+                del records[-1]
+
+        with_records(_drop_middle, "records=dropped-middle")
+        with_records(_renumber_last, "records=renumbered-last")
+        with_records(_swap_2_3, "records=swapped-2-3")
+        with_records(_truncate, "records=truncated-under-full-head")
+        if isinstance(inp.get("head"), dict) and isinstance(inp["head"].get("seq"), int):
+            with_head("seq", inp["head"]["seq"] + 1, "head.seq=off-by-one")
+        with_head("acc", None, "head.acc=null", acc_kind)
+        with_head("acc", "0x1234", "head.acc=malformed", acc_kind)
+        m = json.loads(json.dumps(inp))
+        if isinstance(m.get("head"), dict):
+            m["head"].pop("acc", None)
+            out.append(("head.acc-absent", acc_kind, m))
+        rows = _chain_rows(inp)
+        if rows is not None:
+            true_acc = _fold(rows, ACC_GENESIS, lambda acc, link, _a: chain_acc_step(acc, link))
+            with_head("acc", true_acc, "head.acc=true-fold", acc_kind)
+            with_head("acc", "0x" + true_acc[2:].upper(), "head.acc=true-fold-uppercase", acc_kind)
+            with_head("acc", "  " + true_acc + "  ", "head.acc=true-fold-padded", acc_kind)
+            with_head("acc", _fold(rows, "0x" + "00" * 32, lambda acc, link, _a: chain_acc_step(acc, link)),
+                      "head.acc=zero-seed-fold", acc_kind)
+            with_head("acc", _fold(rows, ACC_GENESIS, lambda acc, link, _a: chain_acc_step(link, acc)),
+                      "head.acc=link-then-acc-fold", acc_kind)
+            with_head("acc", _fold(rows, ACC_GENESIS, lambda acc, _l, artifact: chain_acc_step(acc, artifact)),
+                      "head.acc=artifact-fold", acc_kind)
+            with_head("acc", chain_acc_step(ACC_GENESIS, chain_link_digest(rows[-1][1], rows[-2][1] if len(rows) > 1 else None, rows[-1][0])),
+                      "head.acc=last-link-only", acc_kind)
+            with_head("acc", "0x" + keccak256(b"tersign-chain-commitment-v1").hex(), "head.acc=seed-only", acc_kind)
+            # The true fold over a truncated presentation under the full head: completeness must
+            # win before the accumulator is even consulted, in both engines.
+            m = json.loads(json.dumps(inp))
+            if isinstance(m.get("head"), dict) and len(m.get("records") or []) > 1:
+                del m["records"][-1]
+                m["head"]["acc"] = _fold(rows[:-1], ACC_GENESIS, lambda acc, link, _a: chain_acc_step(acc, link))
+                out.append(("records=truncated+head.acc=fold-of-truncation", acc_kind, m))
 
     # Fork-prone key 1: record_commits — presence must reject identically whatever it holds.
     with_key("record_commits", ["settlement"], "record_commits=list")
@@ -98,7 +210,7 @@ def mutations(kind, inp):
         m = json.loads(json.dumps(inp))
         m.setdefault("settlement_result", {"success": True, "transaction": "0xab", "network": "eip155:8453"})
         m["covers"] = ["settlement", "delivery"]
-        out.append(("covers=settlement+delivery", m))
+        out.append(("covers=settlement+delivery", kind, m))
     if kind == "decision_evidence_binding":
         # Binding-specific fail-closed battery. These cases are intentionally outside the
         # shared manifest oracle so Python/TS shape readings are compared directly.
@@ -117,7 +229,7 @@ def mutations(kind, inp):
                 m.pop("record", None)
             else:
                 m["record"] = record
-            out.append((tag, m))
+            out.append((tag, kind, m))
         if isinstance(inp.get("record"), dict):
             for tag, digest in (
                 ("commitment=null", None),
@@ -126,11 +238,11 @@ def mutations(kind, inp):
             ):
                 m = json.loads(json.dumps(inp))
                 m["record"]["decisionEvidenceDigest"] = digest
-                out.append((tag, m))
+                out.append((tag, kind, m))
         if isinstance(inp.get("decision_evidence"), dict):
             m = json.loads(json.dumps(inp))
             m["decision_evidence"].setdefault("policy", {})["version"] = "substituted"
-            out.append(("decision_evidence=policy-substitution", m))
+            out.append(("decision_evidence=policy-substitution", kind, m))
     if kind == "offer_binding":
         # Regression for key absence versus an explicit JSON null. Python previously used
         # indexing while JS canonicalization received undefined; a refactor to `.get()` can
@@ -138,7 +250,7 @@ def mutations(kind, inp):
         m = json.loads(json.dumps(inp))
         m.pop("offer", None)
         m.setdefault("receipt", {})["offerDigest"] = digest_of(None)
-        out.append(("offer=absent-with-null-commitment", m))
+        out.append(("offer=absent-with-null-commitment", kind, m))
     return out
 
 
@@ -152,8 +264,9 @@ def main():
             vector = json.load(f)
         kind, inp = vector["kind"], vector["input"]
         cases.append({"label": f"{fname}", "kind": kind, "input": inp})
-        for tag, mutated in mutations(kind, inp):
-            cases.append({"label": f"{fname}::{tag}", "kind": kind, "input": mutated})
+        for tag, target_kind, mutated in mutations(kind, inp):
+            label = f"{fname}::{tag}" if target_kind == kind else f"{fname}::{tag}@{target_kind}"
+            cases.append({"label": label, "kind": target_kind, "input": mutated})
 
     py_results = [py_verdict(c["kind"], c["input"]) for c in cases]
 

@@ -1,12 +1,13 @@
 {
   "suite": "evidence-record-conformance",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "layer": "evidence-record",
   "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core \u2014 a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
   "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) \u2014 the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected",
   "content_address": "keccak256(utf8(canonical(payload)))",
   "chain_link": "keccak256(artifact_digest || prev_digest || seq_uint64_be) \u2014 wire form of a genesis predecessor is null; 32 zero bytes is the hashing-time substitution for null",
   "chain_set": "records chain raw artifact digests via prev pointers (genesis prev = null); head.digest equals the final record's artifact digest; completeness = every seq 1..head.seq present; where a record presents a link, it must recompute as keccak256(artifact || prev || seq_be8)",
+  "chain_commitment": "acc_0 = keccak256(utf8('tersign-chain-commitment-v1')); acc_n = keccak256(acc_{n-1} || link_n) over the recomputed links of a chain_set-valid set; head.acc must equal acc_{head.seq}. Production stamps keccak256(utf8(canonical({acc, head, schema:'tersign-chain-commitment-v1', seq}))); a prefix that passes the structural chain_set predicate but was not the one the commitment was built over rejects here",
   "anchor_relation": "anchored_digest = sha256(subject_digest_bytes)",
   "offer_binding": "receipt.offerDigest = keccak256(utf8(canonical(offer))); a receipt that commits to no offer digest cannot bind terms and fails closed",
   "decision_evidence_binding": "within this suite, record.decisionEvidenceDigest = keccak256(utf8(canonical(decision_evidence))); a record presented as authority-decision evidence must bind the exact object. This instantiates the general match/missing/mismatch binding property and does not prescribe a digest, canonicalization, or field location for AUEC, MCP, or another protocol; producer truth and decision semantics remain out of scope",
@@ -349,6 +350,28 @@
       "kind": "canonical_bytes",
       "expect": "reject",
       "reason": "number_domain_reject"
+    },
+    {
+      "file": "p26-chain-commitment-complete.json",
+      "kind": "chain_commitment",
+      "expect": "valid"
+    },
+    {
+      "file": "p27-live-chain-commitment-genesis-chain.json",
+      "kind": "chain_commitment",
+      "expect": "valid"
+    },
+    {
+      "file": "n36-chain-commitment-prefix-substituted.json",
+      "kind": "chain_commitment",
+      "expect": "reject",
+      "reason": "continuity_reject"
+    },
+    {
+      "file": "n37-chain-commitment-last-link-only.json",
+      "kind": "chain_commitment",
+      "expect": "reject",
+      "reason": "continuity_reject"
     }
   ]
 }

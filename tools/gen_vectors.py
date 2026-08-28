@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Regenerate vectors/ + MANIFEST.json deterministically. Committed for transparency:
 anyone can diff a regeneration against the committed bytes (nothing here is random —
-regeneration is byte-identical). The two live-provenance vectors embed records from the
+regeneration is byte-identical). The three live-provenance vectors embed records from the
 live ledger, cross-checkable against the public endpoints named in their `provenance`
-blocks (the genesis record body at /v1/genesis; the anchor record at /v1/anchors)."""
+blocks (the genesis record body at /v1/genesis; the anchor records at /v1/anchors/{id};
+the genesis chain walked backwards through /v1/receipts/{digest}/verify)."""
 
 import hashlib
 import json
@@ -13,7 +14,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
-from verify import canonical, digest_of, chain_link_digest  # noqa: E402
+from verify import canonical, digest_of, chain_link_digest, chain_acc_step, ACC_GENESIS  # noqa: E402
 from keccak import keccak256  # noqa: E402  (vendored, self-checked at import)
 
 V = os.path.join(ROOT, "vectors")
@@ -68,6 +69,85 @@ _prev = None
 for _i, _art in enumerate(d, 1):
     links.append(chain_link_digest(_art, _prev, _i))
     _prev = _art
+
+# Chain-commitment accumulator over those links (v0.5.0): acc_0 = keccak256(utf8(schema)),
+# acc_n = keccak256(acc_{n-1} || link_n). Pinned against the production ledger's own test
+# suite (ledger/test/commitment.test.ts DEMO_ACCS) so a drift in either implementation
+# breaks generation rather than silently re-pinning p26.
+assert ACC_GENESIS == "0x79dde68558318c3f4b7d1af20992f140584708a1001befee3e4ec19c217acfe3", "commitment seed drifted"
+accs = []
+_acc = ACC_GENESIS
+for _link in links:
+    _acc = chain_acc_step(_acc, _link)
+    accs.append(_acc)
+assert accs == [
+    "0xe720e2ed33d43c61b5dba81994d46200a51c1b28207c555c034fadc8877217f1",
+    "0x067d811a57c765d912c1096b279c2bf19fd904830ab8d0c3f56c7ff2653a8e16",
+    "0xae28e0e8b22b15cd27de2390efbe4e3c206decbfe5cede4751b85410f6648f4f",
+], "demo accumulators drifted from the production pins"
+
+# n36: record 1 substituted, prevs and links recomputed so the STRUCTURAL predicate (chain_set)
+# still walks and the head digest is unchanged — only the accumulator tells the two prefixes
+# apart. The true accumulator of the substituted chain is pinned so the vector cannot drift
+# into carrying it by accident.
+SUBSTITUTED_RECORD_1 = {"demo": 1, "note": "synthetic chain-set record (substituted)"}
+d_sub = [digest_of(SUBSTITUTED_RECORD_1), d[1], d[2]]
+assert d_sub[0] == "0x9473ed5e265517974b7a073afd50605372f918a60177ca3655da2117520ef53c"
+links_sub = []
+_prev = None
+for _i, _art in enumerate(d_sub, 1):
+    links_sub.append(chain_link_digest(_art, _prev, _i))
+    _prev = _art
+_acc = ACC_GENESIS
+for _link in links_sub:
+    _acc = chain_acc_step(_acc, _link)
+SUBSTITUTED_TRUE_ACC = _acc
+assert SUBSTITUTED_TRUE_ACC == "0x5479a41d713938384141892656be4e7e8e0ffbdf621b65b6f2194ccd2688e3ba"
+assert SUBSTITUTED_TRUE_ACC != accs[2]
+
+# n37: an accumulator folded over the LAST link only — the "anchor commits to the last record"
+# shape the commitment exists to close.
+LAST_LINK_ONLY_ACC = chain_acc_step(ACC_GENESIS, links[2])
+assert LAST_LINK_ONLY_ACC == "0x4062010194c5605f41afc27e0094266c1cee5063703f5614901893c7fb67ec64"
+assert LAST_LINK_ONLY_ACC != accs[2]
+
+# p27: the live ledger's genesis chain — 13 counter-signed records, walked backwards from the
+# head through the public /verify endpoint on 2026-08-28 (13 GETs, prevDigest at each step),
+# artifact digests and prevs in seq order. The commitment over this prefix is the subject of
+# the confirmed anchor SELLER_COMMITMENT_ANCHOR; the fold below must reproduce its acc.
+GENESIS_CHAIN_HEAD = "0x339800528596c7d53d32571ad999695aef6dfc8fc86dcc4fb827bb6080493961"
+GENESIS_CHAIN_ACC = "0xfc831c0f98c8ea5df6417cd26afa278ed4ab82a1e682d170e47aa4a4173c5511"
+GENESIS_CHAIN_COMMITMENT_DIGEST = "0xcbbef04598368ed02ae67fc0c8ffade6753628d0b8faf4e9211c9dd49a2dbe7b"
+GENESIS_CHAIN_ANCHORED_DIGEST = "0x" + hashlib.sha256(bytes.fromhex(GENESIS_CHAIN_COMMITMENT_DIGEST[2:])).hexdigest()
+assert GENESIS_CHAIN_ANCHORED_DIGEST == "0x7c00ab806c6a9cc3fd654c0cbb107224ccff80642ea289f3c8f226b592647675", "anchoredDigest of the live commitment drifted"
+SELLER_COMMITMENT_ANCHOR = f"seller:{GENESIS_CHAIN_COMMITMENT_DIGEST}"
+GENESIS_CHAIN_DIGESTS = [
+    "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4",
+    "0x89dbfc8c52bd5fa4ed5e879915518f9729cfbd74d9ab020e569eeffd881a4f1c",
+    "0xdee12c6dd1f0a263811d26123224b493ddc3ee089a82aec2d149b87a09e10189",
+    "0xddc12b814c54daa839b1e9e66820d7d28c5bbf254eec0004de2f9d8ba98331ae",
+    "0x3cf272fb879bbe676992167cf2c7d46804f835972204e4b183b96281ebeed632",
+    "0x2f1e9eaea561a71d386145886a2b432997d7d91aee95a0d83e3a1cdae1d2da0a",
+    "0x236779752d6a336da2dbc965b00031408b2927975a8fe209710afa40ae696ae5",
+    "0xb94bbc4fb7d7097039b2afaf244e30f56820cfe89dd7a2201a9a2a63a8ec4e38",
+    "0x2c35d95f7c7f87678dd76d902e4c4809219f0952589ea5116af94997524fecf8",
+    "0xe1cfd0af616a04a041bba95901c4b673cb61d8663e447943c2be1497393dc4fa",
+    "0x7f1570bfb6949fc8fe4d87357e859ba7b901df501b88078a7dca0f4ddb4909b0",
+    "0x45c5a3f282896f2899b6d2ae85b9c37d098c8deb6e6e2f49d531be270d757f2a",
+    GENESIS_CHAIN_HEAD,
+]
+assert GENESIS_CHAIN_DIGESTS[0] == GENESIS_DIGEST, "the genesis chain starts at the genesis receipt (p1)"
+GENESIS_CHAIN_RECORDS = [
+    {"seq": _i, "artifact_digest": _art, "prev_digest": (None if _i == 1 else GENESIS_CHAIN_DIGESTS[_i - 2])}
+    for _i, _art in enumerate(GENESIS_CHAIN_DIGESTS, 1)
+]
+_acc = ACC_GENESIS
+_prev = None
+for _r in GENESIS_CHAIN_RECORDS:
+    _acc = chain_acc_step(_acc, chain_link_digest(_r["artifact_digest"], _prev, _r["seq"]))
+    _prev = _r["artifact_digest"]
+assert _acc == GENESIS_CHAIN_ACC, "live genesis-chain accumulator drifted"
+assert digest_of({"acc": GENESIS_CHAIN_ACC, "head": GENESIS_CHAIN_HEAD, "schema": "tersign-chain-commitment-v1", "seq": 13}) == GENESIS_CHAIN_COMMITMENT_DIGEST, "live commitment digest drifted"
 
 # Pinned in lockstep with the compliance-fields spec (x402-foundation/x402#2853): the
 # number-boundary vector. Recomputed here so a drift in canonical() breaks generation.
@@ -1031,17 +1111,93 @@ vectors = [
         "description": "A number token with a fraction part whose VALUE is an integer: {\"amount\": 2.0}. The digest-domain boundary is the token class, not the value — JSON.parse collapses 2.0 to 2, so an engine reading parsed values sees a valid integer while an engine preserving float-ness rejects, and the two sign different verdicts over identical wire bytes. Rejecting the token class is the only deterministic cross-language rule. Kills the mutant that accepts integer-valued floats (survivor of the pre-p25 corpus, @Rul1an issue #4); the shipped Python engine already rejected, the shipped TS engine accepted until this pin.",
         "input": {"payload_text": '{"amount": 2.0}', "claimed_canonical": '{"amount":2}'},
     },
+    # ----------------------------------- chain commitment (2-sided, v0.5.0, ADDITIVE kind)
+    # A head digest binds the LAST record only: two prefixes ending in the same record — the
+    # real one, and one whose earlier rows were substituted with prevs and links recomputed —
+    # both pass chain_set and both sit under the same anchored head. The commitment closes
+    # that: an accumulator folded over every recomputed link, seeded by a tagged digest, so
+    # one anchored value commits the whole prefix. Every pre-0.5.0 vector is byte-identical;
+    # p6's records are reused so the two predicates are compared over the SAME bytes. n37 was
+    # written before the check existed (repo rule 1): the pre-0.5.0 engine has no such kind
+    # (KeyError → 'malformed'), and the same input under chain_set is 'valid' — the
+    # structural predicate cannot see the defect the accumulator names.
+    {
+        "id": "p26-chain-commitment-complete",
+        "kind": "chain_commitment",
+        "expect": "valid",
+        "description": "Accepting twin of n36/n37: p6's complete set with a head accumulator folded over every recomputed link — acc_0 = keccak256(utf8('tersign-chain-commitment-v1')), acc_n = keccak256(acc_{n-1} || link_n), link_n = keccak256(artifact || prev || seq_be8) with prev = the previous artifact digest. head.acc equals acc_3, so the presented prefix is the one the commitment was built over. Structural profile only: the counter-signatures over the links and the anchor over the commitment are the crypto and existence profiles.",
+        "input": {
+            "head": {"seq": 3, "digest": d[2], "acc": accs[2]},
+            "records": [
+                {"seq": 1, "artifact_digest": d[0], "prev_digest": None, "link": links[0]},
+                {"seq": 2, "artifact_digest": d[1], "prev_digest": d[0], "link": links[1]},
+                {"seq": 3, "artifact_digest": d[2], "prev_digest": d[1], "link": links[2]},
+            ],
+        },
+    },
+    {
+        "id": "p27-live-chain-commitment-genesis-chain",
+        "kind": "chain_commitment",
+        "expect": "valid",
+        "description": "Live ledger chain: the 13 counter-signed records of the tersign ledger's genesis chain (seq 1 is the genesis receipt, p1), walked backwards from the head through the public /verify endpoint on 2026-08-28 — artifact digest and prevDigest at each of 13 steps. The accumulator over the 13 recomputed links equals the `acc` inside the confirmed anchor's subject: production anchors keccak256(utf8(canonical({acc, head, schema: 'tersign-chain-commitment-v1', seq}))) rather than the head digest, so the single anchored value commits every record with seq <= 13. Re-walk the chain and re-fold the accumulator yourself; the anchor row carries the subject object, its merkle path to the batch root, and the OpenTimestamps proof.",
+        "input": {
+            "head": {"seq": 13, "digest": GENESIS_CHAIN_HEAD, "acc": GENESIS_CHAIN_ACC},
+            "records": GENESIS_CHAIN_RECORDS,
+        },
+        "provenance": {
+            "ledger": "https://tersign.ai",
+            "walk": f"curl https://tersign.ai/v1/receipts/{GENESIS_CHAIN_HEAD}/verify  # then follow prevDigest 12 more times to seq 1 (null prevDigest)",
+            "commitment": {"acc": GENESIS_CHAIN_ACC, "head": GENESIS_CHAIN_HEAD, "schema": "tersign-chain-commitment-v1", "seq": 13},
+            "commitment_digest": GENESIS_CHAIN_COMMITMENT_DIGEST,
+            "anchored_digest": GENESIS_CHAIN_ANCHORED_DIGEST,
+            "anchor": f"curl https://tersign.ai/v1/anchors/{SELLER_COMMITMENT_ANCHOR}",
+            "proof": f"curl -O https://tersign.ai/v1/anchors/{SELLER_COMMITMENT_ANCHOR}/proof.ots",
+            "ledger_signer": LEDGER_SIGNER,
+            "note": "commitment_digest = keccak256(utf8(canonical(commitment))); the anchor's anchoredDigest = sha256(commitment_digest bytes) (anchor_relation); counter-signatures over each link are secp256k1 personal_sign material (crypto profile, outside the stdlib core)",
+        },
+    },
+    {
+        "id": "n36-chain-commitment-prefix-substituted",
+        "kind": "chain_commitment",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": "The substituted-prefix class. Record 1 replaced by a different record; prevs and links recomputed so the structural predicate still walks — seq 1..3 dense, every prev the previous artifact digest, every link recomputes, head digest unchanged (record 3 is untouched). chain_set accepts this set; under the SAME anchored head it is indistinguishable from the real one. Presented with the real chain's accumulator (acc_3 of p26), it rejects: the true accumulator of the substituted chain is a different value, and the anchor over the commitment was not built over this prefix. In production the recomputed links would also fail counter-signature recovery; this vector pins that the accumulator alone already separates the two prefixes.",
+        "input": {
+            "head": {"seq": 3, "digest": d_sub[2], "acc": accs[2]},
+            "records": [
+                {"seq": 1, "artifact_digest": d_sub[0], "prev_digest": None, "link": links_sub[0]},
+                {"seq": 2, "artifact_digest": d_sub[1], "prev_digest": d_sub[0], "link": links_sub[1]},
+                {"seq": 3, "artifact_digest": d_sub[2], "prev_digest": d_sub[1], "link": links_sub[2]},
+            ],
+        },
+    },
+    {
+        "id": "n37-chain-commitment-last-link-only",
+        "kind": "chain_commitment",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": "The last-link-only class, and the falsifying input this kind was written against (repo rule 1: authored before the check existed; the pre-0.5.0 engine has no such kind, and the same input passes chain_set). p6's complete set with head.acc = keccak256(acc_0 || link_3) — an accumulator that folds the LAST link only, which is exactly what an anchor over the head digest commits to: the final record, not the prefix beneath it. A verifier that checks the head and the last link and calls the prefix committed accepts this vector and is wrong; the commitment is the fold over EVERY link from the tagged seed, and this value is not it.",
+        "input": {
+            "head": {"seq": 3, "digest": d[2], "acc": LAST_LINK_ONLY_ACC},
+            "records": [
+                {"seq": 1, "artifact_digest": d[0], "prev_digest": None, "link": links[0]},
+                {"seq": 2, "artifact_digest": d[1], "prev_digest": d[0], "link": links[1]},
+                {"seq": 3, "artifact_digest": d[2], "prev_digest": d[1], "link": links[2]},
+            ],
+        },
+    },
 ]
 
 manifest = {
     "suite": "evidence-record-conformance",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "layer": "evidence-record",
     "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core — a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
     "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) — the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected",
     "content_address": "keccak256(utf8(canonical(payload)))",
     "chain_link": "keccak256(artifact_digest || prev_digest || seq_uint64_be) — wire form of a genesis predecessor is null; 32 zero bytes is the hashing-time substitution for null",
     "chain_set": "records chain raw artifact digests via prev pointers (genesis prev = null); head.digest equals the final record's artifact digest; completeness = every seq 1..head.seq present; where a record presents a link, it must recompute as keccak256(artifact || prev || seq_be8)",
+    "chain_commitment": "acc_0 = keccak256(utf8('tersign-chain-commitment-v1')); acc_n = keccak256(acc_{n-1} || link_n) over the recomputed links of a chain_set-valid set; head.acc must equal acc_{head.seq}. Production stamps keccak256(utf8(canonical({acc, head, schema:'tersign-chain-commitment-v1', seq}))); a prefix that passes the structural chain_set predicate but was not the one the commitment was built over rejects here",
     "anchor_relation": "anchored_digest = sha256(subject_digest_bytes)",
     "offer_binding": "receipt.offerDigest = keccak256(utf8(canonical(offer))); a receipt that commits to no offer digest cannot bind terms and fails closed",
     "decision_evidence_binding": "within this suite, record.decisionEvidenceDigest = keccak256(utf8(canonical(decision_evidence))); a record presented as authority-decision evidence must bind the exact object. This instantiates the general match/missing/mismatch binding property and does not prescribe a digest, canonicalization, or field location for AUEC, MCP, or another protocol; producer truth and decision semantics remain out of scope",

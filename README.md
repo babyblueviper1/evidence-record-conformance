@@ -42,7 +42,7 @@ python3 verify.py
 
 stdlib-only, no dependencies, no network. Exit 0 only if every vector produces its expected
 verdict **and** the run observed both verdicts **and** the pinned closure of 10 reject reasons
-and 10 vector kinds was fully exercised, **and every kind produced both verdicts** — the closure is pinned in the verifier, not derived
+and 11 vector kinds was fully exercised, **and every kind produced both verdicts** — the closure is pinned in the verifier, not derived
 from the manifest, so a fork that quietly drops a class goes red. A green run demonstrates
 the verifier discriminates, not merely accepts.
 
@@ -58,6 +58,7 @@ the verifier discriminates, not merely accepts.
 | chain link (artifact ∥ prev ∥ seq) | p4 | n3 wrong predecessor | `continuity_reject` |
 | per-seller set continuity + completeness | p6 (with per-record links) | n4 **silently omitted record**, n17 **renumbered omission** (stale link) | `completeness_reject`, `continuity_reject` |
 | witnessed inclusion vs completeness | p24 (**witnessed complete set**) | n34 **witnessed inclusion is not completeness** | `completeness_reject` |
+| chain commitment (accumulator over counter-signed links) | p26, p27 (live) | n36 **substituted prefix**, n37 **last-link-only accumulator** | `continuity_reject` |
 | anchored existence bound | p5 (live) | n5 truncated/substituted head | `existence_reject` |
 | economic-phase separation | p7 | n6 funding-as-delivery, n18 **unrecognized phase** | `phase_reject` |
 | offer binding (receipt commits to the accepted offer's canonical digest) | p15 | n19 **offer substitution** (same resource/network, different amount/payTo) | `binding_reject` |
@@ -155,6 +156,39 @@ Keccak-256. The conformance property is the algorithm-parametric relation “mat
 object accepts; missing or mismatching commitment rejects”, not a prescription of a digest,
 canonicalization, or field location for AUEC, MCP, or another protocol.
 
+## Commitment accumulator (v0.5.0)
+
+A committed head binds the **last** record only. Two prefixes that end in the same record —
+the real one, and one whose earlier rows were substituted with prevs and links recomputed —
+both pass the `chain_set` predicate and both sit under the same anchored head digest; the
+head cannot tell them apart, and an anchor over the head therefore commits to the final
+record, not to the prefix beneath it. The `chain_commitment` kind pins the construction that
+closes this: an accumulator folded over **every** recomputed link,
+
+```
+acc_0 = keccak256(utf8("tersign-chain-commitment-v1"))
+acc_n = keccak256(acc_{n-1} || link_n)        link_n = keccak256(artifact_n || prev_n || seq_be8)
+```
+
+with `prev_n` the previous record's artifact digest (32 zero bytes at `seq` 1). `head.acc`
+must equal `acc_{head.seq}`; any omission, insertion, reordering or rewrite below the head
+changes it. The seed is a tagged digest, never the 32-zero-byte link-genesis sentinel — link
+preimages are 72 raw bytes, accumulator preimages 64, every canonical-object digest is UTF-8
+text starting `{`, so the three domains cannot collide by construction. Production anchors
+`keccak256(utf8(canonical({acc, head, schema: "tersign-chain-commitment-v1", seq})))` rather
+than the head digest, so one anchored value commits the whole prefix (p27 is that live chain;
+its anchor row carries the subject object). n36 is the substituted prefix presented with the
+real chain's accumulator; n37 is an accumulator folded over the last link only — the exact
+value an anchor over the head commits to, and the shape this kind exists to reject.
+
+The kind is **additive**: every pre-0.5.0 vector is byte-identical, `chain_set`'s semantics
+are unchanged (`chain_commitment` runs it first and propagates any non-valid verdict as-is),
+and the external reproductions at `46ad663` (Songbo Bu) and `0e560c1` (@Rul1an) stand as
+published. Verification is O(N) in the number of records — one link and one accumulator step
+per record, hashing only — which is the cost of a completeness check that does not delegate
+to anyone's word; the anchor over the commitment is what turns the fold into an existence
+bound (`anchor_relation` over the commitment digest).
+
 ## Scope boundary — structural profile vs crypto profile
 
 This stdlib core decides the **structural predicate**: digests, canonical bytes, sequence
@@ -162,12 +196,12 @@ closure, link arithmetic, declared-claim evaluation. It does **not** recover
 counter-signatures. A structurally complete set whose head and links were all recomputed
 wholesale by a single forging party passes the structural predicate — what prevents that in
 production is that every chain link is counter-signed at transaction time by a party outside
-the transaction, and the head is anchored (p5). Signature recovery over the links (secp256k1
+the transaction, and the chain's commitment is anchored (p5, p27). Signature recovery over the links (secp256k1
 `personal_sign`; signer published at `https://tersign.ai/v1/ledger`) is the **crypto
 profile**, the suite's next milestone — deliberately outside the stdlib core so that every
 check above needs hashing only.
 
-## Live provenance — two vectors are records from the live ledger
+## Live provenance — three vectors are records from the live ledger
 
 **p1** is the tersign ledger's genesis (demo) receipt — the one receipt whose full body is
 public by design. Re-fetch the bytes and recompute the digest yourself:
@@ -186,14 +220,32 @@ digest, counter-signature and anchor, never from URL liveness.)
 is checkable without trusting the operator:
 
 ```
-curl https://tersign.ai/v1/anchors        # the anchor record; fetch proof.ots from its proofUrl
+curl https://tersign.ai/v1/anchors/ledger:0xb2c5d2bd28ff65e13c1549a718a4c447916d5277ce046b2061ed63749ff287d9
+                                          # the anchor record BY ID; fetch proof.ots from its proofUrl
 ots verify -d cf48bed1712f5b7df2a309fb52cb2b3d51ab1a04730e3b115cd3db79c96c9b1a proof.ots
 ```
 
-`ots verify` needs a local Bitcoin node to confirm the block header. Without one, the
-no-node path is stronger anyway — it shows the trust chain explicitly:
-`ots info proof.ots` prints the Bitcoin attestation (height 958163, merkle root
+(Fetch it by id: the unqualified `/v1/anchors` listing returns the newest rows and will
+eventually not include this one.) `ots verify` needs a local Bitcoin node to confirm the block
+header. Without one, the no-node path is stronger anyway — it shows the trust chain
+explicitly: `ots info proof.ots` prints the Bitcoin attestation (height 958163, merkle root
 `d23b2da439b5…f85df18c`); compare that root against block 958163 in any block explorer.
+
+**p27** is the ledger's genesis chain — 13 counter-signed records, seq 1 being the genesis
+receipt p1 — with the accumulator over all 13 links, and the commitment over it is anchored
+in Bitcoin block 964428. Re-walk and re-fold it yourself, then check the anchor:
+
+```
+curl https://tersign.ai/v1/receipts/0x339800528596c7d53d32571ad999695aef6dfc8fc86dcc4fb827bb6080493961/verify
+                                          # the head; follow prevDigest 12 more times to seq 1 (prevDigest null)
+python3 verify.py                         # folds the accumulator over the 13 committed records
+curl https://tersign.ai/v1/anchors/seller:0xcbbef04598368ed02ae67fc0c8ffade6753628d0b8faf4e9211c9dd49a2dbe7b
+                                          # subjectArtifact = {acc, head, schema, seq}; merklePath to batchRoot; proofUrl
+```
+
+The anchor's `subjectDigest` is `keccak256(utf8(canonical(subjectArtifact)))` and its
+`anchoredDigest` is `sha256` of those bytes (the same `anchor_relation` p5 pins); the vector's
+`provenance` block carries both values.
 
 Counter-signatures in the live vectors are secp256k1 `personal_sign` material; recovering them
 requires an EVM crypto library and sits outside the stdlib core by design — every check above

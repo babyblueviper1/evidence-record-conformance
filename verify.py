@@ -18,6 +18,12 @@ adversarial vector for its known failure class:
   chain_link            link digest binds artifact + prev + sequence number
   chain_set             per-seller continuity AND completeness (no silent omission),
                         incl. per-record link recomputation where links are presented
+  chain_commitment      a chain_set-valid prefix whose head carries an accumulator over
+                        EVERY recomputed link (acc_0 = keccak256("tersign-chain-commitment-v1"),
+                        acc_n = keccak256(acc_{n-1} || link_n)); the anchored subject in
+                        production is a digest over {acc, head, schema, seq}, so one anchor
+                        commits the whole prefix — a substituted prefix presented with the
+                        real accumulator, or a last-link-only accumulator, rejects
   anchor_relation       anchoredDigest = SHA-256(subjectDigest bytes) — the existence bound
   phase_claim           a record of one economic phase must not verify as a later phase
   independence_claim    a record attested only by parties to the transaction MUST NOT
@@ -101,6 +107,16 @@ def chain_link_digest(artifact_digest, prev_digest, seq):
     a = bytes.fromhex(artifact_digest[2:])
     p = bytes.fromhex((prev_digest or GENESIS_PREV)[2:])
     return "0x" + keccak256(a + p + seq.to_bytes(8, "big")).hex()
+
+
+# Chain-commitment accumulator (v0.5.0). The seed is a TAGGED digest, never the 32-zero-byte
+# link-genesis sentinel: link preimages are 72 raw bytes, accumulator preimages 64 raw bytes,
+# every JCS digest is UTF-8 text starting "{" — domain separation by construction.
+ACC_GENESIS = "0x" + keccak256(b"tersign-chain-commitment-v1").hex()
+
+
+def chain_acc_step(acc, link):
+    return "0x" + keccak256(bytes.fromhex(acc[2:]) + bytes.fromhex(link[2:])).hex()
 
 
 # -------------------------------------------------------- identifier normalization
@@ -310,6 +326,42 @@ def check_chain_set(inp):
     if prev != head_digest:
         return "reject", "continuity_reject", "head digest does not match final record"
     return "valid", None, f"complete 1..{head['seq']} under head (structural predicate; counter-signature profile out of stdlib scope)"
+
+
+def check_chain_commitment(inp):
+    """A chain_set-valid prefix whose head ALSO carries an accumulator over every link.
+
+    chain_set decides continuity and completeness against a committed head; what it cannot
+    decide is whether the presented prefix is THE prefix the anchor was built over. A head
+    digest binds the last record only (a_N), so two prefixes ending in the same record — the
+    real one and one whose earlier rows were substituted, with prevs and links recomputed —
+    both pass chain_set and both sit under the same anchored head. The accumulator closes
+    that: acc_0 = keccak256(utf8("tersign-chain-commitment-v1")), acc_n = keccak256(acc_{n-1}
+    || link_n) over the RECOMPUTED links (prev = previous artifact digest), and head.acc must
+    equal acc_{head.seq}. Any omission, insertion, reordering or rewrite below N changes
+    acc_N. Production anchors keccak256(utf8(canonical({acc, head, schema, seq}))) rather
+    than a_N, so one anchored digest commits the whole prefix; a head.acc that folds only the
+    last link — the "anchor commits to the last record" shape — is exactly what rejects here.
+    Structural profile only: the counter-signatures over each link and the anchor over the
+    commitment are the crypto and existence profiles, outside this stdlib core.
+    """
+    verdict, reason, detail = check_chain_set(inp)
+    if verdict != "valid":
+        return verdict, reason, detail
+    head = inp["head"]
+    claimed = _norm_digest(head.get("acc"))
+    if claimed is None:
+        return "reject", "continuity_reject", "head accumulator is not a parseable 32-byte digest"
+    records = sorted(inp["records"], key=lambda r: r["seq"])
+    acc = ACC_GENESIS
+    prev = None
+    for r in records:
+        artifact = _norm_digest(r["artifact_digest"])
+        acc = chain_acc_step(acc, chain_link_digest(artifact, prev, r["seq"]))
+        prev = artifact
+    if acc != claimed:
+        return "reject", "continuity_reject", "accumulator mismatch: head.acc does not commit to the presented prefix"
+    return "valid", None, f"complete 1..{head['seq']} and head.acc commits the whole prefix (structural predicate; counter-signature and anchor profiles out of stdlib scope)"
 
 
 def check_anchor_relation(inp):
@@ -656,6 +708,7 @@ CHECKS = {
     "canonical_bytes": check_canonical_bytes,
     "chain_link": check_chain_link,
     "chain_set": check_chain_set,
+    "chain_commitment": check_chain_commitment,
     "anchor_relation": check_anchor_relation,
     "phase_claim": check_phase_claim,
     "independence_claim": check_independence_claim,
