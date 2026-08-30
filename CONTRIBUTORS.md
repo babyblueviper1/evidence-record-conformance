@@ -44,21 +44,24 @@ claim-*set* branch two-sided: a set carrying only silence accepts, a set carryin
 verifier cannot interpret rejects. (This is the cherry-picked case described above — the PR
 reads "closed", the work is in `main`.)
 
-**The integer-valued-float token pair** — vectors `p25` / `n35`, from his published
-mutation-adequacy measurement of this corpus
-([#4](https://github.com/tersignhq/evidence-record-conformance/issues/4), 2026-08-24). His
+**The survivor behind the integer-valued-float token pair** — vectors `p25` / `n35`, from his
+published mutation-adequacy measurement of this corpus
+([#1](https://github.com/tersignhq/evidence-record-conformance/issues/1), 2026-08-24). His
 run showed the corpus's only number-domain vector (n10, value 1.1) lets an engine weakened
 to accept integer-valued floats survive the whole suite — verified against current `main`,
-not just his pin. Underneath the corpus gap sat a live cross-engine divergence this suite's
-own differential harness had never exercised: Python preserves `2.0` as a float and rejected;
-`JSON.parse` collapses the same wire bytes to `2` and the TS engine accepted. The pair
+not just his pin. The vectors themselves were written here, and the division of credit is his
+own: *"The token-class boundary and the `JSON.parse` erasure beneath it are your findings, not
+ours. We surfaced a survivor; you identified what it was hiding."* Underneath the corpus gap sat
+a live cross-engine divergence this suite's own differential harness had never exercised: Python
+preserves `2.0` as a float and rejected; `JSON.parse` collapses the same wire bytes to `2` and
+the TS engine accepted. The pair
 carries its payload as raw text (`payload_text`) so the distinction reaches both engines,
 and pins the digest-domain boundary at the number-TOKEN class. He also withdrew his own
 earlier `boundary_binding` survivor finding after re-deriving it — the guard subsumes it —
 which is the review posture this suite exists to reward.
 
 **Commitments must be derived, not declared** — vectors `p17` / `n21`, from his review on
-[#4](https://github.com/tersignhq/evidence-record-conformance/issues/4). He observed that the
+[#1](https://github.com/tersignhq/evidence-record-conformance/issues/1). He observed that the
 commitment-scope rule is only load-bearing once a record's commitments are *derived from the
 record*: a declared list lets a record assert the very scope the rule exists to bound. The
 concrete case he identified is that x402 v2 §5.3.2 defines the empty string as what
