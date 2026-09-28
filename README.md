@@ -352,8 +352,14 @@ addresses are keccak256 (pre-NIST padding, as used by Ethereum) — `hashlib.sha
 different function; a compact Keccak implementation is vendored in `keccak.py`, self-checked
 at import against measured known-answer values.
 
-Cross-implementation measurement: `tools/cross_check_ts.mjs` is an independent
-TypeScript-stack implementation of **every check**, run over the **full committed corpus**
+## Reproduction
+
+Independent reproduction means a run by an implementation that shares no code and no authors with this suite's engines. As of 2026-09-28, no such implementation has run the full set. Outside parties have re-run *our* verifier (byte-identical at `46ad663`; mutation-tested at `0e560c1`) — useful, but not independent reproduction. An outside verifier has run `p18`, `n25` and `n26` (see CONTRIBUTORS.md, @Tetsurohhori). A run by any other implementation, with its output published, is welcome as an issue on this repository.
+
+Cross-implementation measurement: `tools/cross_check_ts.mjs` is a second implementation of
+**every check** on a TypeScript stack, written by the same authors as `verify.py`. Agreement
+between the two is therefore not independent reproduction (see *Reproduction* above); it is
+run over the **full committed corpus**
 (`npm i viem` in the repo root, then `node tools/cross_check_ts.mjs`) — two implementations,
 one vector set, byte-level agreement required on every verdict and reason. CI runs both on
 every push.
