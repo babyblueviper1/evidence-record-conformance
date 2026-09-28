@@ -19,11 +19,11 @@ author preserved, and the provenance line
 [`d672d5c`](https://github.com/tersignhq/evidence-record-conformance/commit/d672d5c) — and the
 PR closed with that explanation. That work is in `main` under its author's name.
 
-It is the only pull request this repository has received to date, and handling it that way was
-a mistake worth recording: it optimised for landing the code over the signal the repository
-emits, and a closed PR reads as a rejection to anyone who does not dig. The preference going
-forward is to rebase a contributor's branch onto `main` and merge it, so the badge, the link
-and the authorship stay together.
+It was the first pull request this repository received, and handling it that way was a
+mistake worth recording: it optimised for landing the code over the signal the repository
+emits, and a closed PR reads as a rejection to anyone who does not dig. The preference since
+is to merge a contributor's branch, rebased onto `main` where needed, so the badge, the link
+and the authorship stay together. Every pull request since (#5, #6, #7) was merged that way.
 
 ---
 
@@ -61,7 +61,7 @@ earlier `boundary_binding` survivor finding after re-deriving it — the guard s
 which is the review posture this suite exists to reward.
 
 **Commitments must be derived, not declared** — vectors `p17` / `n21`, from his review on
-[#1](https://github.com/tersignhq/evidence-record-conformance/issues/1). He observed that the
+[#4](https://github.com/tersignhq/evidence-record-conformance/issues/4#issuecomment-5163808204) (2026-08-03). He observed that the
 commitment-scope rule is only load-bearing once a record's commitments are *derived from the
 record*: a declared list lets a record assert the very scope the rule exists to bound. The
 concrete case he identified is that x402 v2 §5.3.2 defines the empty string as what
@@ -75,9 +75,41 @@ address, a declared label — is not thereby independent, and a declared field g
 That distinction is why the `settledBy` producer field he raised was **not** adopted: a
 criterion satisfiable by declaration reproduces the defect it was meant to catch.
 
+**The derivation has to replace the declaration, not sit behind it** — vectors `n22` / `n23`,
+from his second report on
+[#4](https://github.com/tersignhq/evidence-record-conformance/issues/4#issuecomment-5225737040) (2026-08-08, against
+`2b13f48`). He showed that the derivation shipped for p17/n21 was a fallback: the declared
+`record_commits` was read first, so n21's input with `record_commits: ["settlement"]` added
+scored valid. In the same report he built an input with an explicit `record_commits: null` and
+ran it through both engines: Python read the null as absence and accepted, the TS cross-check
+read it as a declaration and rejected, and the cross-check stayed green because no vector
+carried a null. `n22` and `n23` are those two inputs, written here from his reproductions, and
+the manifest classes them `contributed`. Both engines now reject on the declared field's
+presence. He also worked out that deleting the declared read would turn `p16` red and leave
+`n20` rejecting for the wrong reason; `p16` / `n20` were rebuilt on a settlement result, the
+first of the two repairs he laid out.
+
+**The presence rule's second half** — vector `n24`, from his third report on
+[#4](https://github.com/tersignhq/evidence-record-conformance/issues/4#issuecomment-5228448679) (2026-08-08). `n22` and
+`n23` both assert a scope, so an engine that checks the declared field's presence only inside
+its scope branch passed the whole corpus. He stood such an engine up in a throwaway copy,
+published the result table, and specified the missing vector: n22's input with `covers`
+removed, expected reject. `n24` is that input, with the settlement result also dropped, written
+here and classed `contributed`.
+
+**Two-sidedness per kind** —
+[#1](https://github.com/tersignhq/evidence-record-conformance/issues/1#issuecomment-5265724838) (2026-08-12). He showed that
+the suite's second design rule, that every criterion is two-sided, was gated run-wide rather than
+per kind, so a criterion whose accepting vectors all vanished still passed. He traced the lost
+accepting path for URN identities to `d50545a`, the aliasing fix, four days after a published
+control, and proposed the gate: for every identifier syntax `identifier_normalization` says it
+evaluates, one accepting vector of each kind. That gate landed in `2f80fb2` with `p21` / `n30` /
+`n31`.
+
 ## [@mohammedmessaoudene-cmd](https://github.com/mohammedmessaoudene-cmd) — Mohammed Messaoudene
 
-**Authority-decision evidence binding** — vectors `p19` / `n27` / `n28`. Reported
+**Authority-decision evidence binding** — vectors `p19` / `n27` / `n28`, merged from
+[PR #5](https://github.com/tersignhq/evidence-record-conformance/pull/5). Reported
 `CG-DELTA-LOSS-01` from an AUEC-controlled experiment in the
 [SEP-3004 discussion](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3004#issuecomment-5228991875):
 two allowed decisions can have different host limits, policy versions and
@@ -106,6 +138,12 @@ which is exactly the engine the pair exists to separate.
 
 Submitted under its receipted on-chain mandate, per the same disclosure convention used on
 the list.
+
+**The boundary-binding rule, stated normatively** — in the SEP-3004 thread
+([issuecomment-5227496013](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3004#issuecomment-5227496013),
+2026-08-08), after building the fork on its own machine: a boundary event binds the digest of the
+prefix it extends *and* its own position in that prefix's continuation. That is the rule `p18`
+accepts and `n25` rejects.
 
 ## [@0rkz](https://github.com/0rkz) — PayPerByte
 
@@ -140,6 +178,32 @@ when two implementations agree on the bytes. That became the extension's normati
 section and vectors `p13` (decimal string beside integer) and `n10`/`n11` (float and
 out-of-range integer) here.
 
+## [@Tetsurohhori](https://github.com/Tetsurohhori) — Tetsuroh Hori
+
+**Fabricated boundary and downgrade-to-unattested** — vectors `n25` / `n26`, accepting twin
+`p18`, from the
+[SEP-3004](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3004) thread. The
+fork `n25` pins, two continuations of one prefix that both name it truthfully and both verify,
+was demonstrated against the verifier of his live anchor stream, and he reproduced it himself,
+the fourth independent reproduction
+([issuecomment-5229108806](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3004#issuecomment-5229108806),
+2026-08-09). In the same comment he made the position binding retrospective, then attacked his
+own fix and found the downgrade `n26` pins: with the attestation stripped, his tool fell back to
+the weaker path and printed `VERIFY OK` beside `attested_prefix_lines=0`. He made unattested a
+third outcome with its own exit code. The vectors were written here. He then ran `p18` / `n25` /
+`n26` at `46ad663` against his own verifier through an adapter he wrote, with expected and
+observed agreeing on all three, and declined to score himself on the vectors his verifier has no
+path to
+([issuecomment-5234222504](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3004#issuecomment-5234222504)).
+
+## Reported upstream
+
+**Offer substitution** — `p15` / `n19` pin the class @johnakeke reported against the x402
+offer-and-receipt extension in
+[x402-foundation/x402#3006](https://github.com/x402-foundation/x402/issues/3006) (2026-07-31):
+a privacy-minimal receipt does not bind the payment terms of the accepted offer, so a second
+offer sharing the resource, network and payer cannot be told apart from the one paid.
+
 ---
 
 ## How to contribute
@@ -152,6 +216,10 @@ Two conventions, both enforced by the run itself: every criterion carries **both
 and a rejecting twin, so an implementation that unconditionally rejects a class fails just as
 one that unconditionally accepts it does; and the reject-reason closure is pinned in the
 verifier rather than derived from the manifest, so a fork that quietly drops a class goes red.
+
+Every new vector also needs an entry in `PROVENANCE` in `tools/gen_vectors.py` naming its
+author and origin (the manifest's `vector_provenance` defines both); generation fails without
+one.
 
 Run `python3 tools/gen_vectors.py && python3 verify.py && node tools/cross_check_ts.mjs &&
 python3 tools/differential.py` before opening a PR — CI runs all four, the generator must

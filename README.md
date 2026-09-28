@@ -56,7 +56,7 @@ the verifier discriminates, not merely accepts.
 | number token in the digest domain | p25 (**integer token** via raw `payload_text`) | n35 **integer-valued float token** (wire bytes `2.0` — `JSON.parse` collapses it to `2`, the cross-engine divergence the pair closes) | `number_domain_reject` |
 | supplementary-plane key order (UTF-16 vs code point) | p14 | n12 | `canonicalization_reject` |
 | chain link (artifact ∥ prev ∥ seq) | p4 | n3 wrong predecessor | `continuity_reject` |
-| per-seller set continuity + completeness | p6 (with per-record links) | n4 **silently omitted record**, n17 **renumbered omission** (stale link) | `completeness_reject`, `continuity_reject` |
+| per-seller set continuity + completeness | p6 (with per-record links) | n4 **silently omitted record**, n17 **renumbered omission** (stale link), n38 **float `seq` token** (p6's set with `head.seq` written `3.0` — `JSON.parse` collapses it to `3`; a sequence number is an integer token) | `completeness_reject`, `continuity_reject` |
 | witnessed inclusion vs completeness | p24 (**witnessed complete set**) | n34 **witnessed inclusion is not completeness** | `completeness_reject` |
 | chain commitment (accumulator over counter-signed links) | p26, p27 (live) | n36 **substituted prefix**, n37 **last-link-only accumulator** | `continuity_reject` |
 | duplicate sequence number (equivocation) | p28 (issuer-only, **distinct seqs**), p29 (**committed prefix**) | n39 **two records at one seq** (issuer-only), n40 **equivocating record at a committed position** | `completeness_reject`, `continuity_reject` |
@@ -157,6 +157,40 @@ Keccak-256. The conformance property is the algorithm-parametric relation “mat
 object accepts; missing or mismatching commitment rejects”, not a prescription of a digest,
 canonicalization, or field location for AUEC, MCP, or another protocol.
 
+## Per-vector provenance (v0.5.3)
+
+Every `MANIFEST.json` entry names its `author` and its `origin`. `author` is the GitHub account
+that authored the commit adding the vector; check any entry with
+`git log --diff-filter=A -- vectors/<file>`. `origin.class` says where the vector's material came
+from, from a closed set, and `origin.source` names the PR, commit, fixture, published reproduction
+or live record.
+
+| `origin.class` | vectors | material |
+|---|---|---|
+| `synthetic` | 48 | inputs constructed in `tools/gen_vectors.py` |
+| `live-ledger` | 3 (p1, p5, p27) | a record from the live ledger, unaltered, with a `provenance` block in the vector |
+| `live-ledger-derived` | 4 (p4, n1, n3, n5) | a value from those records, reused or altered |
+| `contributed` | 14 | an outside contributor's PR, commit, fixture or published reproduction |
+
+Of the 69 vectors, nine were authored by four outside contributors (@Rul1an p11/n9,
+@mohammedmessaoudene-cmd p19/n27/n28, @navigatorbuilds p20/n29, @0rkz p22/n32). Five more were
+written here on outside material, and their origin names its author: p23/n33 on @0rkz's
+PayPerByte fixture, and n22/n23/n24 from @Rul1an's published reproductions in issue #4. Thirteen
+vectors carry the live ledger's signer address as sample data, and their `origin.source` says so.
+Both engines read it only as an attestor outside the parties, so any other well-formed address
+outside a vector's parties gives the same verdicts.
+
+Generation fails if a vector has no entry, if its class disagrees with the live-ledger values or
+`provenance` block in its own bytes, or if it carries @0rkz's fixture without crediting him. The
+class of every other `contributed` entry is declared rather than derived from the bytes; each
+names the PR, commit or issue comment it rests on, which is where to check it. Authorship is not
+decidable from the bytes either; the git command above checks it.
+Credit for *reporting* a failure class a vector pins is not material and stays in
+[CONTRIBUTORS.md](CONTRIBUTORS.md).
+
+Metadata only: every vector file is byte-identical to v0.5.2, and neither engine reads the new
+fields, so verdicts, kinds and the reject-reason closure are unchanged.
+
 ## Duplicate sequence numbers (v0.5.2)
 
 A sequence attested only by its issuer evidences ordering. It does not evidence that no other
@@ -238,6 +272,9 @@ profile**, the suite's next milestone — deliberately outside the stdlib core s
 check above needs hashing only.
 
 ## Live provenance — three vectors are records from the live ledger
+
+Four more (p4, n1, n3, n5) reuse or alter a value from these records; their manifest
+`origin.class` is `live-ledger-derived`.
 
 **p1** is the tersign ledger's genesis (demo) receipt — the one receipt whose full body is
 public by design. Re-fetch the bytes and recompute the digest yourself:

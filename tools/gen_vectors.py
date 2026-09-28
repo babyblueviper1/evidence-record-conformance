@@ -1317,9 +1317,153 @@ vectors = [
     },
 ]
 
+# ------------------------------------------------------------------ per-vector provenance
+# v0.5.3. MANIFEST-only metadata: every vector file stays byte-identical. Each manifest entry
+# names its `author` and its `origin`.
+#   author        the GitHub account that authored the commit adding the vector
+#                 (`git log --diff-filter=A -- vectors/<file>`); the maintainer's is Tersign's.
+#   origin.class  where the vector's MATERIAL came from, one of ORIGIN_CLASSES (closed).
+#   origin.source names that source: the PR / commit / fixture / published reproduction, or
+#                 the live record.
+# Credit for REPORTING a failure class a vector pins lives in CONTRIBUTORS.md, not here: a
+# report is not material, while a published reproduction (an input its author ran and posted)
+# is. Every vector must have an entry (no default: a missing entry would
+# otherwise read as Tersign-authored synthetic material, the wrong-credit failure this exists
+# to prevent). Where the bytes can decide it, a declared class is cross-checked against the
+# vector's own bytes below; authorship is not decidable from the bytes and stays checkable
+# against git history with the command above.
+TERSIGN = "Tersign (@wowlegend)"
+ORIGIN_CLASSES = ("synthetic", "live-ledger", "live-ledger-derived", "contributed")
+_SYN = (TERSIGN, "synthetic", "inputs constructed in tools/gen_vectors.py")
+_LIVE_ENDPOINTS = "unaltered; the vector's provenance block names the public endpoints"
+_PR2 = ("@Rul1an", "contributed", "PR #2, commit d672d5c (cherry-picked from 0dee263)")
+_PR5 = ("@mohammedmessaoudene-cmd", "contributed", "PR #5, commit c23a985")
+_PR6 = ("@navigatorbuilds", "contributed",
+        "PR #6, commit 2f4e967; first delivered inline on the IETF web-bot-auth list, 2026-08-09")
+_PR7 = "PR #7, commit adb6bab (issue #3): PayPerByte fixture, values from a live receipt in 0rkz/foreseal-x402-conformance (Apache-2.0)"
+_ON_0RKZ = "built on @0rkz's PayPerByte fixture (PR #7, issue #3); written here, commit a2b906d"
+_R4 = "@Rul1an's reproduction in issue #4 (2026-08-08), written here"
+
+PROVENANCE = {
+    "p1-live-genesis-receipt": (TERSIGN, "live-ledger", f"the ledger's genesis receipt and its counter-signature, {_LIVE_ENDPOINTS}"),
+    "p2-canonical-key-order": _SYN,
+    "p3-integer-key-utf16-order": _SYN,
+    "p4-chain-link-genesis": (TERSIGN, "live-ledger-derived", "the genesis receipt digest (p1) as a genesis link's artifact; the link is computed here"),
+    "p5-live-bitcoin-anchor": (TERSIGN, "live-ledger", f"a counter-signed chain head and its Bitcoin anchor (block 958163), {_LIVE_ENDPOINTS}"),
+    "p6-chain-set-complete": _SYN,
+    "p7-phase-consistent": _SYN,
+    "p8-non-party-attestation": _SYN,
+    "p9-no-independence-claim": _SYN,
+    "n1-value-drift": (TERSIGN, "live-ledger-derived", "p1's genesis receipt with one field altered (issuedAt + 1)"),
+    "n2-hoisted-integer-keys": _SYN,
+    "n3-chain-link-wrong-prev": (TERSIGN, "live-ledger-derived", "the genesis receipt digest (p1) as both the artifact and the claimed predecessor of a link"),
+    "n4-omitted-record": _SYN,
+    "n5-truncated-anchor": (TERSIGN, "live-ledger-derived", "p5's anchored digest paired with a synthetic subject it does not bind"),
+    "n6-phase-confusion": _SYN,
+    "n7-issuer-only-independence": _SYN,
+    "p10-claim-set-independent": _SYN,
+    "p11-claim-set-silence-only": _PR2,
+    "n8-unrecognized-independence-claim": _SYN,
+    "p12-ijson-integer-boundary": _SYN,
+    "p13-decimal-string-beside-integer": _SYN,
+    "n10-float-in-digest-domain": _SYN,
+    "n11-integer-beyond-ijson-range": _SYN,
+    "p14-supplementary-plane-key-order": _SYN,
+    "n12-codepoint-key-order": _SYN,
+    "n13-party-alias-whitespace": _SYN,
+    "n14-unparseable-attestor": _SYN,
+    "n15-claim-without-attestations": _SYN,
+    "n16-attestation-not-an-object": _SYN,
+    "n17-renumbered-omission": _SYN,
+    "n18-unrecognized-phase": _SYN,
+    "p16-independence-scope-committed": _SYN,
+    "n20-independence-scope-uncommitted": _SYN,
+    "p17-independence-scope-derived-settlement": _SYN,
+    "n21-independence-scope-empty-settlement": _SYN,
+    "n22-independence-scope-declared-override": (TERSIGN, "contributed", f"{_R4}: n21's input plus a declared record_commits, issuecomment-5225737040"),
+    "n23-independence-scope-null-declared": (TERSIGN, "contributed", f"{_R4}: his z1-null-commits input, issuecomment-5225737040"),
+    "n24-independence-scope-declared-no-scope": (TERSIGN, "contributed", f"{_R4}: n22's input with covers removed (settlement_result also dropped here), issuecomment-5228448679"),
+    "p22-delivery-commitment-recomputed": ("@0rkz", "contributed", _PR7),
+    "n32-delivery-self-attested": ("@0rkz", "contributed", f"{_PR7}; description later edited here, commit a2b906d"),
+    "p23-delivery-independence-within-commitment": (TERSIGN, "contributed", _ON_0RKZ),
+    "n33-delivery-substitution-scope-overreach": (TERSIGN, "contributed", f"p23 with the fixture's delivered verdict substituted (ALLOW to DENY); {_ON_0RKZ}"),
+    "p24-witnessed-complete-set": _SYN,
+    "n34-witnessed-inclusion-not-completeness": _SYN,
+    "p18-boundary-binds-prefix-and-position": _SYN,
+    "n25-boundary-prefix-only-no-position": _SYN,
+    "n26-coverage-claimed-over-empty-attestation": _SYN,
+    "p19-authority-reduction-bound": _PR5,
+    "n27-authority-reduction-unbound": (_PR5[0], _PR5[1], "PR #5, commits c23a985 and 2f6bef0"),
+    "n28-authority-reduction-substitution": _PR5,
+    "p20-suite-transition-preserves-prefix": _PR6,
+    "n29-suite-transition-redigests-prefix": _PR6,
+    "p21-independence-urn-identities": _SYN,
+    "n30-independence-urn-self-attested": _SYN,
+    "n31-independence-urn-alias-trailing-slash": _SYN,
+    "p15-offer-binding": _SYN,
+    "n19-offer-substitution": _SYN,
+    "n9-unrecognized-member-in-claim-set": _PR2,
+    "p25-integer-token-in-text": _SYN,
+    "n35-integer-valued-float-token": _SYN,
+    "p26-chain-commitment-complete": _SYN,
+    "p27-live-chain-commitment-genesis-chain": (TERSIGN, "live-ledger", f"the ledger's genesis chain (13 counter-signed records) and its commitment anchored in Bitcoin block 964428, {_LIVE_ENDPOINTS}"),
+    "n36-chain-commitment-prefix-substituted": _SYN,
+    "n37-chain-commitment-last-link-only": _SYN,
+    "n38-chain-set-float-seq-token": _SYN,
+    "p28-issuer-sequence-distinct-seq": _SYN,
+    "n39-issuer-sequence-duplicate-seq": _SYN,
+    "p29-committed-prefix-one-record-per-position": _SYN,
+    "n40-equivocating-record-at-committed-position": _SYN,
+}
+
+# Values from the live ledger, and from the one contributed fixture Tersign-written vectors
+# reuse. Declared classes are checked against these in the vectors' own bytes, so a class
+# cannot drift from the material it describes.
+LIVE_LEDGER_MARKERS = tuple(x.lower() for x in (
+    GENESIS_DIGEST, GENESIS_ARTIFACT["signature"], ANCHOR_SUBJECT, ANCHOR_ANCHORED,
+    GENESIS_CHAIN_HEAD, GENESIS_CHAIN_COMMITMENT_DIGEST,
+))
+CONTRIBUTED_MARKERS = {DELIVERY_DIGEST.lower(): "@0rkz"}
+SIGNER_NOTE = "the live ledger's signer address appears as sample data"
+
+
+def _provenance_fail(msg):
+    # Not `assert`: this gate must hold under `python3 -O` too.
+    sys.exit(f"provenance: {msg}")
+
+
+def provenance_of(v):
+    entry = PROVENANCE.get(v["id"])
+    if entry is None:
+        _provenance_fail(f"{v['id']} has no entry; every vector names its author and origin")
+    author, cls, source = entry
+    if not (isinstance(author, str) and author.strip() and isinstance(source, str) and source.strip()):
+        _provenance_fail(f"{v['id']}: author and origin.source must be non-empty strings")
+    if cls not in ORIGIN_CLASSES:
+        _provenance_fail(f"{v['id']}: origin class {cls!r} not in {ORIGIN_CLASSES}")
+    raw = json.dumps(v).lower()
+    if (cls == "live-ledger") != ("provenance" in v):
+        _provenance_fail(f"{v['id']}: class 'live-ledger' iff the vector carries a provenance block")
+    if any(m in raw for m in LIVE_LEDGER_MARKERS) != cls.startswith("live-ledger"):
+        _provenance_fail(f"{v['id']}: class {cls!r} disagrees with the live-ledger values in its bytes")
+    for marker, contributor in CONTRIBUTED_MARKERS.items():
+        if marker in raw and (cls != "contributed" or contributor not in author + source):
+            _provenance_fail(f"{v['id']}: carries {contributor}'s fixture but does not credit it")
+    if cls != "live-ledger" and LEDGER_SIGNER.lower() in json.dumps(v["input"]).lower():
+        source = f"{source}; {SIGNER_NOTE}"
+    return {"author": author, "origin": {"class": cls, "source": source}}
+
+
+_ids = [v["id"] for v in vectors]
+if len(_ids) != len(set(_ids)):
+    _provenance_fail("duplicate vector id")
+if set(PROVENANCE) != set(_ids):
+    _provenance_fail(f"vectors without an entry: {sorted(set(_ids) - set(PROVENANCE))}; "
+                     f"entries without a vector: {sorted(set(PROVENANCE) - set(_ids))}")
+
 manifest = {
     "suite": "evidence-record-conformance",
-    "version": "0.5.2",
+    "version": "0.5.3",
     "layer": "evidence-record",
     "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core — a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
     "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) — the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected",
@@ -1335,9 +1479,11 @@ manifest = {
     "duplicate_sequence": "a sequence attested only by its issuer evidences ordering, not that no other record carries the same `seq` and `correctionSeq`. Two records at one seq in a presented set reject on the duplicate, whatever the issuer attests (p28/n39; the issuer's `attestations` are permitted and not read). A record the issuer did not present is not in the bytes: the other record presented alone passes the structural chain_set predicate under the same head, and only a commitment over every link rejects it (p29/n40)",
     "commitment_derivation": "an independence claim reaches exactly as far as the record's DERIVED commitments, never a declared list (n22-n24): `settlement` when settlement_result.success is true and transaction is a non-empty string; `network` when settlement_result.network is a non-empty string; `delivery` when keccak256(utf8(deliverable_bytes)) == deliverable_digest. A record presenting none of these fields has no evaluable commitments (a scoped claim rejects as unevaluable); a record presenting them and committing to none has an EMPTY commitment set (a scoped claim rejects as overreach). Who delivered is not read by the derivation — position is the independence axis, decided before scope is",
     "field_naming": "harness-level input keys are snake_case (settlement_result, deliverable_bytes, decision_evidence, boundary_event); a key that quotes a protocol's own field keeps that protocol's wire spelling wherever it sits (payTo, resourceUrl, offerDigest, decisionEvidenceDigest). Contributed vectors follow the same two rules; the suite does not rename a protocol's fields to match its own, and does not camelCase its own",
+    "vector_provenance": "every entry names `author`, the GitHub account that authored the commit adding the vector (git log --diff-filter=A -- vectors/<file>), and `origin` = {class, source}. origin.class is closed: synthetic (inputs constructed in tools/gen_vectors.py); live-ledger (a record from the live ledger, unaltered, with a provenance block in the vector); live-ledger-derived (a live-ledger value reused or altered); contributed (an outside contributor's PR, commit, fixture or published reproduction, named in origin.source, including vectors written here on such material). Generation fails if a vector has no entry, if its live-ledger class (or its lack of one) disagrees with the live-ledger values and provenance block in its own bytes, or if it carries a contributed fixture without crediting the contributor; authorship is not decided at generation: it is checkable against git history with the command above. Credit for reporting a failure class is recorded in CONTRIBUTORS.md. Metadata only: neither engine reads it",
     "vectors": [
         {"file": f"{v['id']}.json", "kind": v["kind"], "expect": v["expect"],
-         **({"reason": v["reason"]} if v["expect"] == "reject" else {})}
+         **({"reason": v["reason"]} if v["expect"] == "reject" else {}),
+         **provenance_of(v)}
         for v in vectors
     ],
 }
