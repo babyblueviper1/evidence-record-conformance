@@ -59,6 +59,7 @@ the verifier discriminates, not merely accepts.
 | per-seller set continuity + completeness | p6 (with per-record links) | n4 **silently omitted record**, n17 **renumbered omission** (stale link) | `completeness_reject`, `continuity_reject` |
 | witnessed inclusion vs completeness | p24 (**witnessed complete set**) | n34 **witnessed inclusion is not completeness** | `completeness_reject` |
 | chain commitment (accumulator over counter-signed links) | p26, p27 (live) | n36 **substituted prefix**, n37 **last-link-only accumulator** | `continuity_reject` |
+| duplicate sequence number (equivocation) | p28 (issuer-only, **distinct seqs**), p29 (**committed prefix**) | n39 **two records at one seq** (issuer-only), n40 **equivocating record at a committed position** | `completeness_reject`, `continuity_reject` |
 | anchored existence bound | p5 (live) | n5 truncated/substituted head | `existence_reject` |
 | economic-phase separation | p7 | n6 funding-as-delivery, n18 **unrecognized phase** | `phase_reject` |
 | offer binding (receipt commits to the accepted offer's canonical digest) | p15 | n19 **offer substitution** (same resource/network, different amount/payTo) | `binding_reject` |
@@ -155,6 +156,29 @@ This suite instantiates the relation with its local RFC-8785-compatible canonica
 Keccak-256. The conformance property is the algorithm-parametric relation “matching canonical
 object accepts; missing or mismatching commitment rejects”, not a prescription of a digest,
 canonicalization, or field location for AUEC, MCP, or another protocol.
+
+## Duplicate sequence numbers (v0.5.2)
+
+A sequence attested only by its issuer evidences ordering. It does not evidence that no other
+record carries the same `seq` and `correctionSeq`: an issuer holding two records under one
+number can present each to a different relying party, and each presentation is complete on its
+own terms. `chain_set` has always rejected a second record at an occupied seq, but no vector
+reached that branch — a verifier that deduplicated records by seq before the completeness check
+passed all 65 pre-0.5.2 vectors (measured 2026-09-28, in both engines). n39 pins it: two
+different records carrying the same `seq` and `correctionSeq`, presented together beside the
+issuer's own attestation, reject on the duplicate; p28 is the same records at distinct numbers.
+
+What one presentation cannot show is the record it does not contain. n40 is the issuer's other
+record presented alone at position 2 of p29's prefix, prevs and links recomputed: it passes the
+structural `chain_set` predicate under p29's head digest (asserted in `tools/gen_vectors.py` on
+every regeneration), and only the accumulator over every link rejects it. Arithmetically n40 is
+n36's substitution at an interior position, and the mutants it kills are ones n36 and n37
+already kill; what it adds is the class — a second record under an existing number, not a
+forgery.
+
+Additive: every pre-0.5.2 vector is byte-identical. The differential battery gained a
+duplicated-record mutation for both chain kinds; against a TypeScript engine that deduplicates
+by seq it goes red where the previous battery stayed green.
 
 ## Number-token class on integer fields (v0.5.1)
 

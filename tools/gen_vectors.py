@@ -14,7 +14,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
-from verify import canonical, digest_of, chain_link_digest, chain_acc_step, ACC_GENESIS  # noqa: E402
+from verify import canonical, digest_of, chain_link_digest, chain_acc_step, ACC_GENESIS, check_chain_set  # noqa: E402
 from keccak import keccak256  # noqa: E402  (vendored, self-checked at import)
 
 V = os.path.join(ROOT, "vectors")
@@ -110,6 +110,65 @@ assert SUBSTITUTED_TRUE_ACC != accs[2]
 LAST_LINK_ONLY_ACC = chain_acc_step(ACC_GENESIS, links[2])
 assert LAST_LINK_ONLY_ACC == "0x4062010194c5605f41afc27e0094266c1cee5063703f5614901893c7fb67ec64"
 assert LAST_LINK_ONLY_ACC != accs[2]
+
+# v0.5.2 — duplicate sequence numbers (equivocation). Synthetic issuer records whose content
+# quotes the extension's `seq` / `correctionSeq` (protocol spelling, per field_naming).
+# ISSUER_R2A and ISSUER_R2B carry the SAME (seq, correctionSeq) and differ in content: two
+# different records under one number. The suite fixes no convention for the correctionSeq an
+# uncorrected record carries; equality of the pair is what defines the class.
+ISSUER = "0x3333333333333333333333333333333333333333"  # the synthetic payee of p8/n7
+
+
+def _issuer_record(seq, amount):
+    return {"seq": seq, "correctionSeq": 0, "amount": amount, "note": "synthetic issuer record"}
+
+
+def _row(seq, artifact, prev):
+    return {"seq": seq, "artifact_digest": artifact, "prev_digest": prev, "link": chain_link_digest(artifact, prev, seq)}
+
+
+ISSUER_R1 = digest_of(_issuer_record(1, "10.00"))
+ISSUER_R2A = digest_of(_issuer_record(2, "20.00"))
+ISSUER_R2B = digest_of(_issuer_record(2, "25.00"))  # same seq AND correctionSeq as R2A
+ISSUER_R3 = digest_of(_issuer_record(3, "30.00"))
+ISSUER_R3B = digest_of(_issuer_record(3, "25.00"))  # R2B renumbered to the next free number (p28)
+ISSUER_R4 = digest_of(_issuer_record(4, "30.00"))   # R3 renumbered after it (p28)
+assert len({ISSUER_R1, ISSUER_R2A, ISSUER_R2B, ISSUER_R3, ISSUER_R3B, ISSUER_R4}) == 6
+
+# n39: the issuer's sequence forked after seq 1 — R2A and R2B both chain off R1 at position 2,
+# each with the correct link for that position; R3 continues from R2A. p28: the same records,
+# each at its own number.
+DUP_SEQ_RECORDS = [
+    _row(1, ISSUER_R1, None),
+    _row(2, ISSUER_R2A, ISSUER_R1),
+    _row(2, ISSUER_R2B, ISSUER_R1),
+    _row(3, ISSUER_R3, ISSUER_R2A),
+]
+DISTINCT_SEQ_RECORDS = [
+    _row(1, ISSUER_R1, None),
+    _row(2, ISSUER_R2A, ISSUER_R1),
+    _row(3, ISSUER_R3B, ISSUER_R2A),
+    _row(4, ISSUER_R4, ISSUER_R3B),
+]
+
+# p29 / n40: the committed prefix (R1, R2A, R3) and the equivocating presentation (R1, R2B, R3),
+# prevs and links recomputed. Both pass the structural chain_set predicate under ONE head
+# digest — asserted here, so the claim that an issuer-only sequence cannot tell them apart is
+# executed on every regeneration — and only the accumulator over every link differs.
+COMMITTED_PREFIX = [_row(1, ISSUER_R1, None), _row(2, ISSUER_R2A, ISSUER_R1), _row(3, ISSUER_R3, ISSUER_R2A)]
+EQUIVOCATING_PREFIX = [_row(1, ISSUER_R1, None), _row(2, ISSUER_R2B, ISSUER_R1), _row(3, ISSUER_R3, ISSUER_R2B)]
+_acc = ACC_GENESIS
+for _r in COMMITTED_PREFIX:
+    _acc = chain_acc_step(_acc, _r["link"])
+COMMITTED_PREFIX_ACC = _acc
+_acc = ACC_GENESIS
+for _r in EQUIVOCATING_PREFIX:
+    _acc = chain_acc_step(_acc, _r["link"])
+assert _acc != COMMITTED_PREFIX_ACC, "the two presentations must differ under the accumulator"
+_head = {"seq": 3, "digest": ISSUER_R3}
+assert check_chain_set({"head": _head, "records": COMMITTED_PREFIX})[0] == "valid"
+assert check_chain_set({"head": _head, "records": EQUIVOCATING_PREFIX})[0] == "valid", \
+    "the equivocating presentation must pass the issuer-only structural predicate under the same head"
 
 # p27: the live ledger's genesis chain — 13 counter-signed records, walked backwards from the
 # head through the public /verify endpoint on 2026-08-28 (13 GETs, prevDigest at each step),
@@ -1207,23 +1266,73 @@ vectors = [
             ],
         },
     },
+    # ------------------------------------ v0.5.2: duplicate sequence numbers (equivocation)
+    # chain_set has always rejected a second record at an occupied seq, but no vector reached
+    # that branch: a verifier that deduplicated records by seq before the completeness check
+    # passed every pre-0.5.2 vector. p28/n39 pin the branch; p29/n40 pin what a single
+    # presentation cannot show — the other record, presented alone at a committed position.
+    {
+        "id": "p28-issuer-sequence-distinct-seq",
+        "kind": "chain_set",
+        "expect": "valid",
+        "description": "Accepting twin of n39: the same issuer records renumbered so each has its own sequence number — n39's second seq-2 record becomes 3 and its successor 4 (content and digests change with the number), prevs and links recomputed. The only attestation over the sequence is the issuer's own (`attestations`, not read by the predicate). Valid is the structural predicate over the PRESENTED records: every seq 1..4 present exactly once, links continuous, head matches. It is not evidence that no other record carries any of these numbers: a record the issuer never presented is not in these bytes (n40 is that case, checked against a committed prefix).",
+        "input": {
+            "head": {"seq": 4, "digest": ISSUER_R4},
+            "records": DISTINCT_SEQ_RECORDS,
+            "attestations": [{"by": ISSUER, "role": "issuer"}],
+        },
+    },
+    {
+        "id": "n39-issuer-sequence-duplicate-seq",
+        "kind": "chain_set",
+        "expect": "reject",
+        "reason": "completeness_reject",
+        "description": "Rejecting twin of p28: two different issuer records carrying the same `seq` and `correctionSeq`, both presented at seq 2 of an issuer-held sequence, each with the correct prev and link for that position (the sequence forked after seq 1). The only attestation over the sequence is the issuer's own. An evaluator MUST reject on the duplicate (`duplicate seq [2] under committed head`). An engine that omits the duplicate check (for instance because the issuer attests its numbers are unique) rejects only for the wrong reason (continuity: the second seq-2 record does not chain from the first); one that deduplicates by seq before the completeness check accepts when it keeps the first record and rejects for the wrong reason when it keeps the last. All three fail this vector. The duplicate is visible here only because both records were presented together: a sequence attested only by its issuer does not evidence that no other record carries the same number (n40).",
+        "input": {
+            "head": {"seq": 3, "digest": ISSUER_R3},
+            "records": DUP_SEQ_RECORDS,
+            "attestations": [{"by": ISSUER, "role": "issuer"}],
+        },
+    },
+    {
+        "id": "p29-committed-prefix-one-record-per-position",
+        "kind": "chain_commitment",
+        "expect": "valid",
+        "description": "Accepting twin of n40: the committed prefix — three issuer records (n39's seq 1, first seq 2 and seq 3), head.acc folded over every recomputed link. Valid: the presented prefix is the one the commitment was built over, so the record at each position is the one committed there. In production the links are counter-signed at issuance by a party outside the transaction and the commitment is anchored; this structural profile checks the fold only.",
+        "input": {
+            "head": {"seq": 3, "digest": ISSUER_R3, "acc": COMMITTED_PREFIX_ACC},
+            "records": COMMITTED_PREFIX,
+        },
+    },
+    {
+        "id": "n40-equivocating-record-at-committed-position",
+        "kind": "chain_commitment",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": "Equivocation against a committed prefix. The issuer's other record carrying seq 2 and the same correctionSeq (n39's second seq 2) is presented alone at position 2, in place of the committed record, with prevs and links recomputed. This presentation passes the structural chain_set predicate under the same head digest as p29 (asserted at generation): an issuer-only sequence cannot tell the two apart. Only head.acc, the commitment over every link, does, and it rejects (`accumulator mismatch`): two records cannot occupy one committed position. The arithmetic is n36's substitution at an interior position; what differs is the substituted record, a second record under an existing number rather than a forgery.",
+        "input": {
+            "head": {"seq": 3, "digest": ISSUER_R3, "acc": COMMITTED_PREFIX_ACC},
+            "records": EQUIVOCATING_PREFIX,
+        },
+    },
 ]
 
 manifest = {
     "suite": "evidence-record-conformance",
-    "version": "0.5.1",
+    "version": "0.5.2",
     "layer": "evidence-record",
     "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core — a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
     "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) — the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected",
     "content_address": "keccak256(utf8(canonical(payload)))",
     "chain_link": "keccak256(artifact_digest || prev_digest || seq_uint64_be) — wire form of a genesis predecessor is null; 32 zero bytes is the hashing-time substitution for null",
-    "chain_set": "records chain raw artifact digests via prev pointers (genesis prev = null); head.digest equals the final record's artifact digest; completeness = every seq 1..head.seq present; where a record presents a link, it must recompute as keccak256(artifact || prev || seq_be8)",
+    "chain_set": "records chain raw artifact digests via prev pointers (genesis prev = null); head.digest equals the final record's artifact digest; completeness = every seq 1..head.seq present exactly once (a second record at an occupied seq rejects: n39); where a record presents a link, it must recompute as keccak256(artifact || prev || seq_be8)",
     "chain_commitment": "acc_0 = keccak256(utf8('tersign-chain-commitment-v1')); acc_n = keccak256(acc_{n-1} || link_n) over the recomputed links of a chain_set-valid set; head.acc must equal acc_{head.seq}. Production stamps keccak256(utf8(canonical({acc, head, schema:'tersign-chain-commitment-v1', seq}))); a prefix that passes the structural chain_set predicate but was not the one the commitment was built over rejects here",
     "anchor_relation": "anchored_digest = sha256(subject_digest_bytes)",
     "offer_binding": "receipt.offerDigest = keccak256(utf8(canonical(offer))); a receipt that commits to no offer digest cannot bind terms and fails closed",
     "decision_evidence_binding": "within this suite, record.decisionEvidenceDigest = keccak256(utf8(canonical(decision_evidence))); a record presented as authority-decision evidence must bind the exact object. This instantiates the general match/missing/mismatch binding property and does not prescribe a digest, canonicalization, or field location for AUEC, MCP, or another protocol; producer truth and decision semantics remain out of scope",
     "identifier_normalization": "two identity syntaxes, both evaluated by every criterion that compares identity (pinned by one accepting vector each under the per-kind two-sided gate): 0x-addresses compare after strip + lowercase; scheme-qualified identifiers (lowercase alnum scheme, one colon, printable non-space ASCII path) compare after strip, case-significant; digests compare after strip + lowercase; identifiers that do not parse after normalization fail closed",
     "witnessed_inclusion": "witness material (a cosigned checkpoint, inclusion proofs) presented beside a chain set is permitted and NOT load-bearing for completeness: it evidences existence and the log's consistency, never no-omission; a set with a gap rejects on the gap regardless of how many parties cosigned the log (p24/n34). Completeness requires a non-party attestation over the sequence itself, made at issuance",
+    "duplicate_sequence": "a sequence attested only by its issuer evidences ordering, not that no other record carries the same `seq` and `correctionSeq`. Two records at one seq in a presented set reject on the duplicate, whatever the issuer attests (p28/n39; the issuer's `attestations` are permitted and not read). A record the issuer did not present is not in the bytes: the other record presented alone passes the structural chain_set predicate under the same head, and only a commitment over every link rejects it (p29/n40)",
     "commitment_derivation": "an independence claim reaches exactly as far as the record's DERIVED commitments, never a declared list (n22-n24): `settlement` when settlement_result.success is true and transaction is a non-empty string; `network` when settlement_result.network is a non-empty string; `delivery` when keccak256(utf8(deliverable_bytes)) == deliverable_digest. A record presenting none of these fields has no evaluable commitments (a scoped claim rejects as unevaluable); a record presenting them and committing to none has an EMPTY commitment set (a scoped claim rejects as overreach). Who delivered is not read by the derivation — position is the independence axis, decided before scope is",
     "field_naming": "harness-level input keys are snake_case (settlement_result, deliverable_bytes, decision_evidence, boundary_event); a key that quotes a protocol's own field keeps that protocol's wire spelling wherever it sits (payTo, resourceUrl, offerDigest, decisionEvidenceDigest). Contributed vectors follow the same two rules; the suite does not rename a protocol's fields to match its own, and does not camelCase its own",
     "vectors": [

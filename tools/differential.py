@@ -11,8 +11,9 @@ while every run stayed green. Reported as a limit of the corpus cross-check by @
 This harness is the non-transitive control: every corpus vector PLUS a deterministic
 off-corpus mutation battery at fork-prone keys (explicit nulls, declared/derivable conflicts,
 containers of the wrong shape; since v0.5.0 also the chain kinds — dropped, renumbered,
-swapped and truncated records, an off-by-one head, and every plausible wrong accumulator
-fold at `head.acc`), run through BOTH engines, verdict and reason-code compared directly.
+swapped, truncated and (v0.5.2) duplicated records, an off-by-one head, and every plausible
+wrong accumulator fold at `head.acc`), run through BOTH engines, verdict and reason-code
+compared directly.
 Any divergence exits non-zero and prints the offending input.
 
 Run:  npm i viem  (repo root), then  python3 tools/differential.py
@@ -134,7 +135,17 @@ def mutations(kind, inp):
             if records and isinstance(records[0].get("seq"), int):
                 records[0]["seq"] = float(records[0]["seq"])  # wire token `1.0` (v0.5.1, B25)
 
+        def _duplicate_middle(records):
+            # v0.5.2: a second, different record at an occupied seq, inserted beside the
+            # original. Both engines must return the same verdict and reason whatever order
+            # their sort leaves the two in.
+            if records:
+                dup = dict(records[len(records) // 2])
+                dup["artifact_digest"] = "0x" + "ee" * 32
+                records.insert(len(records) // 2 + 1, dup)
+
         with_records(_float_seq_first, "records[0].seq=float-token")
+        with_records(_duplicate_middle, "records=duplicated-middle")
         if isinstance(inp.get("head"), dict) and isinstance(inp["head"].get("seq"), int):
             with_head("seq", float(inp["head"]["seq"]), "head.seq=float-token")
             with_head("seq", float(inp["head"]["seq"]), "head.seq=float-token@commitment", acc_kind)
