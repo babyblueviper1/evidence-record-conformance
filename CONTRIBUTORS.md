@@ -46,8 +46,8 @@ reads "closed", the work is in `main`.)
 
 **The survivor behind the integer-valued-float token pair** — vectors `p25` / `n35`, from his
 published mutation-adequacy measurement of this corpus
-([#1](https://github.com/tersignhq/evidence-record-conformance/issues/1), 2026-08-24). His
-run showed the corpus's only number-domain vector (n10, value 1.1) lets an engine weakened
+([#1](https://github.com/tersignhq/evidence-record-conformance/issues/1), 2026-08-23). His
+run showed the corpus's only fractional number token (n10, value 1.1) lets an engine weakened
 to accept integer-valued floats survive the whole suite — verified against current `main`,
 not just his pin. The vectors themselves were written here, and the division of credit is his
 own: *"The token-class boundary and the `JSON.parse` erasure beneath it are your findings, not

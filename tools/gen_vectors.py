@@ -1148,7 +1148,7 @@ vectors = [
         },
     },
     # Integer-valued float token pair (p25/n35): found by @Rul1an's mutation-adequacy run
-    # against this corpus (issue #4, 2026-08-24) — the corpus's only number-domain vector
+    # against this corpus (issue #1, 2026-08-23) — the corpus's only fractional number token
     # (n10) carries 1.1, so an engine weakened to accept integer-valued floats survives the
     # whole suite. Underneath the corpus gap sat a live cross-engine divergence: Python's
     # json preserves 2.0 as a float and canonical() rejects it; JSON.parse collapses the

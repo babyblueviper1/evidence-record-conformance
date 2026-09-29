@@ -354,7 +354,7 @@ at import against measured known-answer values.
 
 ## Reproduction
 
-Independent reproduction means a run by an implementation that shares no code and no authors with this suite's engines. As of 2026-09-28, no such implementation has run the full set. Outside parties have re-run *our* verifier (byte-identical at `46ad663`; mutation-tested at `0e560c1`) — useful, but not independent reproduction. An outside verifier has run `p18`, `n25` and `n26` (see CONTRIBUTORS.md, @Tetsurohhori). A run by any other implementation, with its output published, is welcome as an issue on this repository.
+Independent reproduction means a run by an implementation that shares no code and no authors with this suite's engines. At `0eda303`, two such implementations have each run the full set and published the output: a Node verifier ([#8](https://github.com/tersignhq/evidence-record-conformance/issues/8)) and a clean-room Python verifier ([#9](https://github.com/tersignhq/evidence-record-conformance/issues/9)). Both match all 69 verdicts and every named reject reason. That reproduces the 69 vectors; a reading no vector pins is not reproduced by it. Agreement makes no verifier a reference, ours included. Earlier outside runs re-ran *our* verifier (byte-identical at `46ad663`; mutation-tested at `0e560c1`), and an outside verifier ran `p18`, `n25` and `n26` (CONTRIBUTORS.md, @Tetsurohhori).
 
 Cross-implementation measurement: `tools/cross_check_ts.mjs` is a second implementation of
 **every check** on a TypeScript stack, written by the same authors as `verify.py`. Agreement
