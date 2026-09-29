@@ -1,0 +1,87 @@
+{
+ "profile": "crypto (secp256k1 personal_sign counter-signature recovery over chain links)",
+ "runner": "crypto/verify_crypto.py",
+ "test_key_address": "0xc6c2919698cd8f3c63e731f9231871f75138e60b",
+ "vectors": [
+  {
+   "file": "cp1-live-genesis-link-countersignature.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "live-ledger",
+    "source": "crypto-profile contribution; live values from p1/p4"
+   }
+  },
+  {
+   "file": "cp2-test-key-accepting-twin.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "crypto/gen_crypto_vectors (test key published in-file)"
+   }
+  },
+  {
+   "file": "cn1-signature-moved-to-another-seq.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "crypto-profile contribution; live values from p1/p4"
+   }
+  },
+  {
+   "file": "cn2-foreign-signer-claims-ledger.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "crypto/gen_crypto_vectors (test key published in-file)"
+   }
+  },
+  {
+   "file": "cn3-high-s-malleated-live-signature.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "crypto-profile contribution; live values from p1/p4"
+   }
+  },
+  {
+   "file": "cn4-raw-digest-signature-no-eip191-prefix.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "crypto/gen_crypto_vectors (test key published in-file)"
+   }
+  },
+  {
+   "file": "cn5-truncated-64-byte-signature.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "crypto-profile contribution; live values from p1/p4"
+   }
+  },
+  {
+   "file": "cn6-recovery-byte-out-of-range.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "crypto-profile contribution; live values from p1/p4"
+   }
+  }
+ ]
+}
