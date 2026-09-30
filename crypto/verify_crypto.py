@@ -41,6 +41,7 @@ MUTANTS = {   # each is a plausible broken verifier; the suite must fail it on t
     "link_ignores_seq": "cn1-signature-moved-to-another-seq",
     "hardcoded_tersign_signer": "cp2-test-key-accepting-twin",
     "v_normalized_mod_2": "cn6-recovery-byte-out-of-range",
+    "high_s_normalized": "cn3-high-s-malleated-live-signature",
 }
 
 
@@ -54,7 +55,9 @@ def mutant_check(name, inp):
     elif v not in (27, 28):
         return "reject", "malformed_signature"
     r, s = int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:64], "big")
-    if name != "no_low_s_check" and s > S.N // 2:
+    if name == "high_s_normalized" and s > S.N // 2:
+        s, v = S.N - s, 55 - v   # "fix" the encoding instead of refusing it, as many libraries do
+    elif name != "no_low_s_check" and s > S.N // 2:
         return "reject", "non_canonical_s"
     L = link(inp["artifact_digest"], inp.get("prev_digest"), 1 if name == "link_ignores_seq" else inp["seq"])
     h = L if name == "recover_over_raw_digest" else S.personal_sign_hash(L)

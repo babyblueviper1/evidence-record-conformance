@@ -6,17 +6,19 @@ The runner is pure standard library: `crypto/secp256k1_recover.py` (verification
 
 ```
 python3 crypto/verify_crypto.py            # 8/8 vectors, verdict + reject reason
-python3 crypto/verify_crypto.py --mutants  # 5 plausible broken verifiers, each killed by a named vector
+python3 crypto/verify_crypto.py --mutants  # 6 plausible broken verifiers, each killed by a named vector
 ```
 
 ## The check
 
 1. `link = keccak256(artifact_digest || prev_digest (or 32 zero bytes) || seq_uint64_be)`. This is the core `chain_link` recomputed from the vector's own fields, so the signature is bound to the structural link, not to a hash supplied beside it.
 2. The counter-signature must be 65 bytes `r || s || v`, with `v ∈ {27, 28}`.
-3. It must be low-s (EIP-2: `s ≤ n/2`).
+3. It must be low-s (EIP-2: `s ≤ n/2`), checked on the signature bytes **before** recovery, and a high-s signature MUST be rejected, not normalized to `n - s`. After recovery the two encodings are indistinguishable by address, since both return the same signer.
 4. EIP-191 `personal_sign` recovery over the 32 link bytes must return `ledger_signer`, compared as a 0x-address after strip and lowercase.
 
 Reject reasons: `malformed_signature`, `non_canonical_s`, `unrecoverable`, `signer_mismatch`.
+
+**Uniqueness of encoding (normative).** A conformant counter-signature suite MUST admit exactly one byte string per signer and link. For ECDSA over secp256k1 that is rule 3. A suite admitted later MUST state its canonical-encoding rule and reject every other encoding before verification. For Ed25519 that means rejecting a non-canonical `S` (`S ≥ L`, RFC 8032 §5.1.7). A suite whose verifier accepts two encodings of one signature is not conformant, whatever its other properties. (Thanks to @stillmarcus24, whose independent runner confirmed cn3 and raised both the ordering and the per-suite rule.)
 
 ## Vectors (two-sided)
 
