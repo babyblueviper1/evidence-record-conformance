@@ -1,11 +1,11 @@
 {
-  "id": "cn7-non-hex-artifact-digest",
+  "id": "cn17-digest-bom-padded",
   "kind": "countersignature",
   "expect": "reject",
   "reject_reason": "malformed_input",
-  "description": "artifact_digest is not valid 32-byte hex. A verifier that reaches for bytes.fromhex() unguarded raises instead of rejecting -- a crash is not a reject.",
+  "description": "artifact_digest is cp1's digest followed by U+FEFF. U+FEFF is a format character without the White_Space property, so normalization does not strip it (the core's n52 rule) and the digest does not parse: malformed_input.",
   "input": {
-    "artifact_digest": "0xnot-hex-at-all",
+    "artifact_digest": "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4\ufeff",
     "prev_digest": null,
     "seq": 1,
     "countersignature": "0xfccc1add7301c688e03311ff04b9aecac4f0d81a468fc95128b24aa0c8aff2bf3b148181befffc6dbe739b1991d936cd434a2fa2bcb8ea1f49a06b8f7a3fff1d1c",

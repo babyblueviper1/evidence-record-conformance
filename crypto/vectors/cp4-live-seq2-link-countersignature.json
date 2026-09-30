@@ -1,0 +1,21 @@
+{
+  "id": "cp4-live-seq2-link-countersignature",
+  "kind": "countersignature",
+  "expect": "valid",
+  "description": "Live, non-genesis: the ledger's counter-signature over the seq-2 chain link (artifact 0x89db...4f1c, predecessor the genesis digest). Recovery over the link with a real predecessor and seq > 1 returns the pinned ledger_signer. Provenance block names the public endpoint.",
+  "input": {
+    "artifact_digest": "0x89dbfc8c52bd5fa4ed5e879915518f9729cfbd74d9ab020e569eeffd881a4f1c",
+    "prev_digest": "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4",
+    "seq": 2,
+    "countersignature": "0x0ede826d797ad3e0601d213ebfdfa570b1ca9f74abe826d3c5e3479e1f93d38e13da2f7ffeb7760312024b4d6d0f0c541f42443aef75ea529fa19fd97791c31f1b",
+    "ledger_signer": "0x9d38BA84730271eb27Ac9bD4Bd2620c08dB4FDa6"
+  },
+  "provenance": {
+    "ledger": "https://tersign.ai",
+    "verify": "curl https://tersign.ai/v1/receipts/0x89dbfc8c52bd5fa4ed5e879915518f9729cfbd74d9ab020e569eeffd881a4f1c/verify",
+    "seq": 2,
+    "prev_digest": "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4",
+    "countersignature": "0x0ede826d797ad3e0601d213ebfdfa570b1ca9f74abe826d3c5e3479e1f93d38e13da2f7ffeb7760312024b4d6d0f0c541f42443aef75ea529fa19fd97791c31f1b",
+    "ledger_signer": "0x9d38BA84730271eb27Ac9bD4Bd2620c08dB4FDa6"
+  }
+}

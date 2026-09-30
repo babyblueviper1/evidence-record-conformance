@@ -1,216 +1,396 @@
 {
  "profile": "crypto (secp256k1 personal_sign counter-signature recovery over chain links)",
  "runner": "crypto/verify_crypto.py",
+ "generator": "crypto/gen_crypto_vectors.py",
+ "licence": "Apache-2.0, as the repository (LICENSE)",
+ "link_version": 1,
+ "link_recipe": {
+  "1": "keccak256(artifact_digest || prev_digest, or 32 zero bytes when absent || uint64_be(seq)), the core chain_link"
+ },
+ "link_version_rule": "an input may carry link_version; absent means 1; any value other than the integer 1 rejects as unsupported_link_version",
+ "field_domain": "artifact_digest, prev_digest and ledger_signer: strip leading/trailing Unicode White_Space characters (the core's identifier_normalization set) and lowercase, then exactly 0x + 64 hex (digests) or 0x + 40 hex (signer); seq: an integer token in [1, 2**53 - 1]; countersignature: matched whole and unnormalized, exactly 0x + 130 hex digits, v in {27, 28}",
+ "reject_reasons": [
+  "malformed_input",
+  "unsupported_link_version",
+  "malformed_signature",
+  "non_canonical_s",
+  "unrecoverable",
+  "signer_mismatch"
+ ],
+ "set_rules": "the runner reads this file, not a directory listing, and fails on a file on disk but not listed (or the reverse), an empty set, a one-sided kind, a declared reason no vector exercises, or a reason not declared",
  "test_key_address": "0xc6c2919698cd8f3c63e731f9231871f75138e60b",
+ "test_key_derivation": "keccak256(\"evidence-record-conformance crypto-profile test key v1\") mod n",
+ "test_nonce_derivation": "keccak256(\"fixed nonce, test vectors only\") mod n",
+ "vector_provenance": "as the core's vector_provenance: author = the GitHub account that authored the commit adding the vector; origin.class in (synthetic, live-ledger, live-ledger-derived, contributed); live-ledger vectors carry a provenance block naming the public endpoint",
  "vectors": [
   {
    "file": "cp1-live-genesis-link-countersignature.json",
    "kind": "countersignature",
    "expect": "valid",
-   "author": "babyblueviper1 (invinoveritas)",
+   "author": "@babyblueviper1",
    "origin": {
     "class": "live-ledger",
-    "source": "crypto-profile contribution; live values from p1/p4"
+    "source": "the ledger's counter-signature over the genesis link, unaltered; the vector's provenance block names the public endpoints"
    }
   },
   {
    "file": "cp2-test-key-accepting-twin.json",
    "kind": "countersignature",
    "expect": "valid",
-   "author": "babyblueviper1 (invinoveritas)",
+   "author": "@babyblueviper1",
    "origin": {
     "class": "synthetic",
-    "source": "crypto/gen_crypto_vectors (test key published in-file)"
-   }
-  },
-  {
-   "file": "cn1-signature-moved-to-another-seq.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "live-ledger-derived",
-    "source": "crypto-profile contribution; live values from p1/p4"
-   }
-  },
-  {
-   "file": "cn2-foreign-signer-claims-ledger.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "crypto/gen_crypto_vectors (test key published in-file)"
-   }
-  },
-  {
-   "file": "cn3-high-s-malleated-live-signature.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "live-ledger-derived",
-    "source": "crypto-profile contribution; live values from p1/p4"
-   }
-  },
-  {
-   "file": "cn4-raw-digest-signature-no-eip191-prefix.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "crypto/gen_crypto_vectors (test key published in-file)"
-   }
-  },
-  {
-   "file": "cn5-truncated-64-byte-signature.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "live-ledger-derived",
-    "source": "crypto-profile contribution; live values from p1/p4"
-   }
-  },
-  {
-   "file": "cn6-recovery-byte-out-of-range.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "live-ledger-derived",
-    "source": "crypto-profile contribution; live values from p1/p4"
-   }
-  },
-  {
-   "file": "cn7-non-hex-artifact-digest.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 raised uncaught on a malformed artifact_digest instead of rejecting; vector independently authored to pin the fix"
-   }
-  },
-  {
-   "file": "cn8-negative-seq.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 raised OverflowError on a negative seq instead of rejecting; vector independently authored to pin the fix"
-   }
-  },
-  {
-   "file": "cn9-seq-out-of-range.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 raised OverflowError on seq >= 2**64 instead of rejecting; vector independently authored to pin the fix"
-   }
-  },
-  {
-   "file": "cn10-seq-wrong-type-string.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 silently coerced seq=\"1\" (str) to valid via int(seq); vector independently authored to pin the fix"
-   }
-  },
-  {
-   "file": "cn11-seq-wrong-type-bool.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "same gap class as cn10 (bool is an int subclass in Python); vector independently authored to pin the fix"
-   }
-  },
-  {
-   "file": "cn12-malformed-ledger-signer.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: ledger_signer's form was never checked before use as an equality target; vector independently authored to pin the fix"
-   }
-  },
-  {
-   "file": "cn13-malformed-prev-digest.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: a present-but-malformed prev_digest was never distinguished from an absent one; vector independently authored to pin the fix"
-   }
-  },
-  {
-   "file": "cn14-signature-missing-0x-prefix.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 accepted a countersignature with a missing 0x prefix via .removeprefix(); vector independently authored to pin the fix and the malformed_signature-vs-malformed_input boundary"
-   }
-  },
-  {
-   "file": "cn15-signature-embedded-whitespace.json",
-   "kind": "countersignature",
-   "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
-   "origin": {
-    "class": "synthetic",
-    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 accepted a countersignature with embedded whitespace via .strip(); vector independently authored to pin the fix"
+    "source": "inputs constructed in crypto/gen_crypto_vectors.py with the published test key"
    }
   },
   {
    "file": "cp3-prev-digest-absent-key-equals-null.json",
    "kind": "countersignature",
    "expect": "valid",
-   "author": "babyblueviper1 (invinoveritas)",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with the prev_digest key omitted"
+   }
+  },
+  {
+   "file": "cp4-live-seq2-link-countersignature.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger",
+    "source": "the ledger's counter-signature over the seq-2 link, unaltered; the vector's provenance block names the public endpoint"
+   }
+  },
+  {
+   "file": "cp5-digest-trailing-newline-normalized.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cp6-ledger-signer-trailing-newline-normalized.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cp7-digest-uppercase-0X-normalized.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cp8-explicit-link-version-1.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with link_version 1 carried explicitly"
+   }
+  },
+  {
+   "file": "cp9-seq-max-test-key.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
    "origin": {
     "class": "synthetic",
-    "source": "positive control paired with cn13: pins that an omitted prev_digest key and an explicit null both mean genesis"
+    "source": "inputs constructed in crypto/gen_crypto_vectors.py with the published test key"
+   }
+  },
+  {
+   "file": "cn1-signature-moved-to-another-seq.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's signature moved to seq 2"
+   }
+  },
+  {
+   "file": "cn2-foreign-signer-claims-ledger.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "synthetic",
+    "source": "inputs constructed in crypto/gen_crypto_vectors.py with the published test key"
+   }
+  },
+  {
+   "file": "cn3-high-s-malleated-live-signature.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's signature malleated to s' = n - s, v flipped"
+   }
+  },
+  {
+   "file": "cn4-raw-digest-signature-no-eip191-prefix.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "synthetic",
+    "source": "inputs constructed in crypto/gen_crypto_vectors.py with the published test key"
+   }
+  },
+  {
+   "file": "cn5-truncated-64-byte-signature.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's signature with the recovery byte dropped"
+   }
+  },
+  {
+   "file": "cn6-recovery-byte-out-of-range.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's signature with v = 29"
+   }
+  },
+  {
+   "file": "cn7-non-hex-artifact-digest.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cn8-negative-seq.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cn9-seq-out-of-range.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cn10-seq-wrong-type-string.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cn11-seq-wrong-type-bool.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cn12-malformed-ledger-signer.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cn13-malformed-prev-digest.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cn14-signature-missing-0x-prefix.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cn15-signature-embedded-whitespace.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
   {
    "file": "cn16-signature-trailing-newline.json",
    "kind": "countersignature",
    "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
+   "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
-    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5907121036: verify_crypto.py at 1e08f4e's ^...$ field-shape regexes accepted a trailing newline (Python's unqualified $ matches before a trailing newline, not just end-of-string) on countersignature; vector independently authored to pin the fix (anchored with \\A...\\Z)"
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
    }
   },
   {
-   "file": "cn17-digest-trailing-newline.json",
+   "file": "cn17-digest-bom-padded.json",
    "kind": "countersignature",
    "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
+   "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
-    "source": "same $-vs-\\Z gap class as cn16, on artifact_digest; vector independently authored to pin the fix"
+    "class": "live-ledger-derived",
+    "source": "cp1's digest followed by U+FEFF"
    }
   },
   {
-   "file": "cn18-ledger-signer-trailing-newline.json",
+   "file": "cn18-signature-uppercase-0X-prefix.json",
    "kind": "countersignature",
    "expect": "reject",
-   "author": "babyblueviper1 (invinoveritas)",
+   "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
-    "source": "same $-vs-\\Z gap class as cn16, on ledger_signer -- the sharpest instance, since a leading space on the same field was already correctly rejected (cn12's sibling case) while a trailing newline was not; vector independently authored to pin the fix"
+    "class": "contributed",
+    "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
+   }
+  },
+  {
+   "file": "cn19-moved-predecessor-live-seq2.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp4 with prev_digest replaced by that record's anchor subjectDigest"
+   }
+  },
+  {
+   "file": "cn20-unrecoverable-r-off-curve.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's s and v with r replaced by the smallest x that is not on the curve"
+   }
+  },
+  {
+   "file": "cn21-recovery-byte-zero.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's signature with v = 0"
+   }
+  },
+  {
+   "file": "cn22-recovery-byte-one.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's signature with v = 1"
+   }
+  },
+  {
+   "file": "cn23-low-s-boundary-accepted-then-mismatch.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's r with s = floor(n/2)"
+   }
+  },
+  {
+   "file": "cn24-low-s-boundary-plus-one.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's r with s = floor(n/2) + 1"
+   }
+  },
+  {
+   "file": "cn25-seq-zero.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with seq 0"
+   }
+  },
+  {
+   "file": "cn26-seq-above-2-53.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with seq 2**53"
+   }
+  },
+  {
+   "file": "cn27-unsupported-link-version.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with link_version 2"
+   }
+  },
+  {
+   "file": "cn28-link-version-string.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with link_version \"1\""
    }
   }
  ]

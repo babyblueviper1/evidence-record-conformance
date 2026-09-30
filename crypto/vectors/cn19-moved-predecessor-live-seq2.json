@@ -1,0 +1,14 @@
+{
+  "id": "cn19-moved-predecessor-live-seq2",
+  "kind": "countersignature",
+  "expect": "reject",
+  "reject_reason": "signer_mismatch",
+  "description": "cp4's genuine seq-2 signature presented over a link whose prev_digest is another real ledger digest (that record's anchor subjectDigest) instead of the genesis digest. The link commits to its predecessor, so recovery returns a different address: signer_mismatch.",
+  "input": {
+    "artifact_digest": "0x89dbfc8c52bd5fa4ed5e879915518f9729cfbd74d9ab020e569eeffd881a4f1c",
+    "prev_digest": "0xddc12b814c54daa839b1e9e66820d7d28c5bbf254eec0004de2f9d8ba98331ae",
+    "seq": 2,
+    "countersignature": "0x0ede826d797ad3e0601d213ebfdfa570b1ca9f74abe826d3c5e3479e1f93d38e13da2f7ffeb7760312024b4d6d0f0c541f42443aef75ea529fa19fd97791c31f1b",
+    "ledger_signer": "0x9d38BA84730271eb27Ac9bD4Bd2620c08dB4FDa6"
+  }
+}

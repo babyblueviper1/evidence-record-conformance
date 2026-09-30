@@ -1,0 +1,14 @@
+{
+  "id": "cn23-low-s-boundary-accepted-then-mismatch",
+  "kind": "countersignature",
+  "expect": "reject",
+  "reject_reason": "signer_mismatch",
+  "description": "cp1's r with s = floor(n/2), the largest canonical s. It passes the low-s check (EIP-2: s <= n/2) and fails later, at signer_mismatch. The reason is the point: an off-by-one verifier that refuses s = n/2 reports non_canonical_s here.",
+  "input": {
+    "artifact_digest": "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4",
+    "prev_digest": null,
+    "seq": 1,
+    "countersignature": "0xfccc1add7301c688e03311ff04b9aecac4f0d81a468fc95128b24aa0c8aff2bf7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a01c",
+    "ledger_signer": "0x9d38BA84730271eb27Ac9bD4Bd2620c08dB4FDa6"
+  }
+}

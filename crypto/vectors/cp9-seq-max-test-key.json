@@ -1,0 +1,13 @@
+{
+  "id": "cp9-seq-max-test-key",
+  "kind": "countersignature",
+  "expect": "valid",
+  "description": "The top of the seq domain: seq = 2**53 - 1 (the largest integer every JSON engine carries exactly), signed by the published test key over that link. Valid. Boundary twin of cn26.",
+  "input": {
+    "artifact_digest": "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4",
+    "prev_digest": null,
+    "seq": 9007199254740991,
+    "countersignature": "0xc71e83c3996f7eaa85353b606ec9d78e05cd7633ec4ced0a7fbced96cb7f6f4103d1b1e247e5e8d878c27c2426e2d5ffb4e07a6343017a40ed6868bffe0571e11c",
+    "ledger_signer": "0xc6c2919698cd8f3c63e731f9231871f75138e60b"
+  }
+}

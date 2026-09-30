@@ -2,6 +2,7 @@
   "id": "cn14-signature-missing-0x-prefix",
   "kind": "countersignature",
   "expect": "reject",
+  "reject_reason": "malformed_signature",
   "description": "countersignature is the correct 130 hex digits but without the 0x prefix. This is a malformed *signature field*, not a malformed_input -- the distinction pins that field-shape checks for the other declared fields happen before signature parsing, while the signature's own shape is still judged under malformed_signature.",
   "input": {
     "artifact_digest": "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4",
@@ -9,6 +10,5 @@
     "seq": 1,
     "countersignature": "fccc1add7301c688e03311ff04b9aecac4f0d81a468fc95128b24aa0c8aff2bf3b148181befffc6dbe739b1991d936cd434a2fa2bcb8ea1f49a06b8f7a3fff1d1c",
     "ledger_signer": "0x9d38BA84730271eb27Ac9bD4Bd2620c08dB4FDa6"
-  },
-  "reject_reason": "malformed_signature"
+  }
 }
