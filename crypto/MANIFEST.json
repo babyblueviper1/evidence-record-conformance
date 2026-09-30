@@ -82,6 +82,106 @@
     "class": "live-ledger-derived",
     "source": "crypto-profile contribution; live values from p1/p4"
    }
+  },
+  {
+   "file": "cn7-non-hex-artifact-digest.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 raised uncaught on a malformed artifact_digest instead of rejecting; vector independently authored to pin the fix"
+   }
+  },
+  {
+   "file": "cn8-negative-seq.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 raised OverflowError on a negative seq instead of rejecting; vector independently authored to pin the fix"
+   }
+  },
+  {
+   "file": "cn9-seq-out-of-range.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 raised OverflowError on seq >= 2**64 instead of rejecting; vector independently authored to pin the fix"
+   }
+  },
+  {
+   "file": "cn10-seq-wrong-type-string.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 silently coerced seq=\"1\" (str) to valid via int(seq); vector independently authored to pin the fix"
+   }
+  },
+  {
+   "file": "cn11-seq-wrong-type-bool.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "same gap class as cn10 (bool is an int subclass in Python); vector independently authored to pin the fix"
+   }
+  },
+  {
+   "file": "cn12-malformed-ledger-signer.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: ledger_signer's form was never checked before use as an equality target; vector independently authored to pin the fix"
+   }
+  },
+  {
+   "file": "cn13-malformed-prev-digest.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: a present-but-malformed prev_digest was never distinguished from an absent one; vector independently authored to pin the fix"
+   }
+  },
+  {
+   "file": "cn14-signature-missing-0x-prefix.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 accepted a countersignature with a missing 0x prefix via .removeprefix(); vector independently authored to pin the fix and the malformed_signature-vs-malformed_input boundary"
+   }
+  },
+  {
+   "file": "cn15-signature-embedded-whitespace.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5905183087: verify_crypto.py at 05a83a8 accepted a countersignature with embedded whitespace via .strip(); vector independently authored to pin the fix"
+   }
+  },
+  {
+   "file": "cp3-prev-digest-absent-key-equals-null.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "positive control paired with cn13: pins that an omitted prev_digest key and an explicit null both mean genesis"
+   }
   }
  ]
 }

@@ -4,12 +4,25 @@
 Check, per vector: link = keccak256(artifact_digest || prev_digest (or 32 zero bytes) || seq_uint64_be)  [the core chain_link];
 the 65-byte counter-signature r||s||v must be well formed (v in {27,28}), low-s (EIP-2: s <= n/2), and secp256k1 personal_sign
 (EIP-191 0x45) recovery over the 32 link bytes must return the declared signer (0x-address, compared after strip + lowercase).
-Reject reasons: malformed_signature, non_canonical_s, unrecoverable, signer_mismatch."""
-import glob, json, os, sys
+Reject reasons: malformed_signature, non_canonical_s, unrecoverable, signer_mismatch, malformed_input.
+malformed_input covers artifact_digest / prev_digest / seq / ledger_signer: each is checked for its exact
+declared form (32-byte 0x-hex digest, 0x-hex 20-byte address, seq a real int in [0, 2**64), never a str/
+float/bool) before the signature is even parsed. An absent prev_digest (key missing or null) is not
+malformed -- both mean "genesis", 32 zero bytes. malformed_signature stays scoped to the signature field
+itself: exactly "0x" followed by 130 hex digits, no surrounding whitespace, no missing prefix -- a
+leniently-parsed signature (stray whitespace, a dropped "0x") must not silently recover and pass."""
+import glob, json, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.dirname(HERE))
 from keccak import keccak256  # noqa: E402
 import secp256k1_recover as S  # noqa: E402
+
+_DIGEST_RE = {32: re.compile(r"^0[xX][0-9a-fA-F]{64}$"), 20: re.compile(r"^0[xX][0-9a-fA-F]{40}$")}
+_SIG_RE = re.compile(r"^0[xX][0-9a-fA-F]{130}$")
+
+
+def _is_hex_of(x, nbytes):
+    return isinstance(x, str) and bool(_DIGEST_RE[nbytes].match(x))
 
 
 def link(artifact_digest, prev_digest, seq):
@@ -18,16 +31,29 @@ def link(artifact_digest, prev_digest, seq):
 
 
 def check(inp):
-    try:
-        sig = bytes.fromhex(inp["countersignature"].strip().removeprefix("0x"))
-    except (ValueError, AttributeError):
+    for k in ("artifact_digest", "seq", "countersignature", "ledger_signer"):
+        if k not in inp:
+            return "reject", "malformed_input"
+    if not _is_hex_of(inp["artifact_digest"], 32):
+        return "reject", "malformed_input"
+    prev_digest = inp.get("prev_digest")
+    if prev_digest is not None and not _is_hex_of(prev_digest, 32):
+        return "reject", "malformed_input"
+    seq = inp["seq"]
+    if not isinstance(seq, int) or isinstance(seq, bool) or not (0 <= seq < 2 ** 64):
+        return "reject", "malformed_input"
+    if not _is_hex_of(inp["ledger_signer"], 20):
+        return "reject", "malformed_input"
+    sig_field = inp["countersignature"]
+    if not (isinstance(sig_field, str) and _SIG_RE.match(sig_field)):
         return "reject", "malformed_signature"
-    if len(sig) != 65 or sig[64] not in (27, 28):
+    sig = bytes.fromhex(sig_field[2:])
+    if sig[64] not in (27, 28):
         return "reject", "malformed_signature"
     r, s = int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:64], "big")
     if s > S.N // 2:
         return "reject", "non_canonical_s"
-    Q = S.recover(S.personal_sign_hash(link(inp["artifact_digest"], inp.get("prev_digest"), inp["seq"])), r, s, sig[64] - 27)
+    Q = S.recover(S.personal_sign_hash(link(inp["artifact_digest"], prev_digest, seq)), r, s, sig[64] - 27)
     if Q is None:
         return "reject", "unrecoverable"
     if S.address(Q) != inp["ledger_signer"].strip().lower():
@@ -42,11 +68,19 @@ MUTANTS = {   # each is a plausible broken verifier; the suite must fail it on t
     "hardcoded_tersign_signer": "cp2-test-key-accepting-twin",
     "v_normalized_mod_2": "cn6-recovery-byte-out-of-range",
     "high_s_normalized": "cn3-high-s-malleated-live-signature",
+    "no_seq_type_check": "cn10-seq-wrong-type-string",
+    "lenient_signature_parsing": "cn14-signature-missing-0x-prefix",
 }
 
 
 def mutant_check(name, inp):
-    sig = bytes.fromhex(inp["countersignature"].strip().removeprefix("0x"))
+    if name == "lenient_signature_parsing":
+        sig = bytes.fromhex(inp["countersignature"].strip().removeprefix("0x"))
+    else:
+        sig_field = inp["countersignature"]
+        if not (isinstance(sig_field, str) and _SIG_RE.match(sig_field)):
+            return "reject", "malformed_signature"
+        sig = bytes.fromhex(sig_field[2:])
     if len(sig) != 65:
         return "reject", "malformed_signature"
     v = sig[64]
