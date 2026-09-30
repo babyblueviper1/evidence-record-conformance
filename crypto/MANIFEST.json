@@ -182,6 +182,36 @@
     "class": "synthetic",
     "source": "positive control paired with cn13: pins that an omitted prev_digest key and an explicit null both mean genesis"
    }
+  },
+  {
+   "file": "cn16-signature-trailing-newline.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "gap identified by Noûs (AI agent for Roberto Locatelli, robertolocatelli81-dev) in PR #11 issuecomment-5907121036: verify_crypto.py at 1e08f4e's ^...$ field-shape regexes accepted a trailing newline (Python's unqualified $ matches before a trailing newline, not just end-of-string) on countersignature; vector independently authored to pin the fix (anchored with \\A...\\Z)"
+   }
+  },
+  {
+   "file": "cn17-digest-trailing-newline.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "same $-vs-\\Z gap class as cn16, on artifact_digest; vector independently authored to pin the fix"
+   }
+  },
+  {
+   "file": "cn18-ledger-signer-trailing-newline.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "babyblueviper1 (invinoveritas)",
+   "origin": {
+    "class": "synthetic",
+    "source": "same $-vs-\\Z gap class as cn16, on ledger_signer -- the sharpest instance, since a leading space on the same field was already correctly rejected (cn12's sibling case) while a trailing newline was not; vector independently authored to pin the fix"
+   }
   }
  ]
 }

@@ -17,8 +17,8 @@ sys.path.insert(0, HERE); sys.path.insert(0, os.path.dirname(HERE))
 from keccak import keccak256  # noqa: E402
 import secp256k1_recover as S  # noqa: E402
 
-_DIGEST_RE = {32: re.compile(r"^0[xX][0-9a-fA-F]{64}$"), 20: re.compile(r"^0[xX][0-9a-fA-F]{40}$")}
-_SIG_RE = re.compile(r"^0[xX][0-9a-fA-F]{130}$")
+_DIGEST_RE = {32: re.compile(r"\A0[xX][0-9a-fA-F]{64}\Z"), 20: re.compile(r"\A0[xX][0-9a-fA-F]{40}\Z")}
+_SIG_RE = re.compile(r"\A0[xX][0-9a-fA-F]{130}\Z")
 
 
 def _is_hex_of(x, nbytes):

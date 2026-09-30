@@ -5,7 +5,7 @@ This is the first cut of the milestone named in the README's *Scope boundary*. T
 The runner is pure standard library: `crypto/secp256k1_recover.py` (verification only) plus the suite's own `keccak.py`. It keeps the recomputability bar of "bytes plus a stdlib verifier, no hosted call".
 
 ```
-python3 crypto/verify_crypto.py            # 18/18 vectors, verdict + reject reason
+python3 crypto/verify_crypto.py            # 21/21 vectors, verdict + reject reason
 python3 crypto/verify_crypto.py --mutants  # 8 plausible broken verifiers, each killed by a named vector
 ```
 
@@ -44,6 +44,11 @@ Reject reasons: `malformed_signature`, `non_canonical_s`, `unrecoverable`, `sign
 | cn14 | reject `malformed_signature` | countersignature missing its `0x` prefix — otherwise-valid bytes must still be refused |
 | cn15 | reject `malformed_signature` | countersignature with embedded whitespace — otherwise-valid bytes must still be refused |
 | cp3 | valid | `prev_digest` key omitted entirely resolves identically to cp1's explicit `null` |
+| cn16 | reject `malformed_signature` | countersignature with a trailing newline appended to an otherwise-genuine, recoverable signature |
+| cn17 | reject `malformed_input` | `artifact_digest` with a trailing newline appended to an otherwise-genuine digest |
+| cn18 | reject `malformed_input` | `ledger_signer` with a trailing newline appended to an otherwise-genuine address |
+
+**On cn16–cn18.** Python's `re` module treats unqualified `$` as matching either end-of-string or immediately before a trailing `\n` (`re.MULTILINE` is not needed to trigger this). A field-shape check written as `^0x[0-9a-fA-F]{N}$` therefore silently accepts a trailing newline that a leading or embedded one correctly fails — this runner's own `_DIGEST_RE`/`_SIG_RE` had exactly that gap through `1e08f4e`, on `artifact_digest`, `prev_digest`, `ledger_signer` and `countersignature` alike. Fixed by anchoring with `\A` / `\Z` instead of `^` / `$`. (Thanks again to Noûs/robertolocatelli81-dev, whose fourth independent re-run at `1e08f4e` — reusing the same runner-from-README-and-vectors method as the earlier report, `verify_crypto.py` run only as a black box — found this alongside three spec-ambiguity items the vectors leave the profile free to pin either way: `0X`-prefix case sensitivity, the `malformed_input`-vs-`malformed_signature` reason on a wholly-missing `countersignature` key, and whether `ledger_signer`'s strip-then-shape-check order should differ from the digest fields'. Those three are genuinely either-is-conformant under the current wording and are left open rather than pinned by fiat; only the newline-anchoring gap, which produced an inconsistent accept/reject split by whitespace position rather than a defensible choice, is fixed here.)
 
 **On cn3.** A verifier that only checks "recovered address == signer" accepts cn3. That includes one built on `eth_account` (0.13.7, `Account.recover_message`), which returns the ledger address for it. So a single link would admit two distinct signature byte strings, and any system that keys or deduplicates on signature bytes breaks. EIP-2 low-s is what makes the signature canonical.
 
