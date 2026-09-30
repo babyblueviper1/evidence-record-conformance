@@ -12,8 +12,14 @@ This harness is the non-transitive control: every corpus vector PLUS a determini
 off-corpus mutation battery at fork-prone keys (explicit nulls, declared/derivable conflicts,
 containers of the wrong shape; since v0.5.0 also the chain kinds — dropped, renumbered,
 swapped, truncated and (v0.5.2) duplicated records, an off-by-one head, and every plausible
-wrong accumulator fold at `head.acc`), run through BOTH engines, verdict and reason-code
-compared directly.
+wrong accumulator fold at `head.acc`; since v0.5.4 the `payload_text` raw-text pathway —
+duplicate names, non-JSON constants, unparseable and non-string text, and shape-vs-number
+precedence — a fixed list of alias forms for each class of the identifier rule (whitespace,
+case, trailing punctuation, percent-encoding, dot-segments, query and fragment components,
+cross-namespace address forms) on a party and an attestor, and the whitespace characters the
+two host languages' strip functions disagree on, at identifiers, digests and settlement
+fields), run through BOTH engines, verdict and reason-code compared directly. A form not on
+the list is not compared.
 Any divergence exits non-zero and prints the offending input.
 
 Run:  npm i viem  (repo root), then  python3 tools/differential.py
@@ -28,8 +34,10 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from verify import CHECKS, digest_of, chain_link_digest, chain_acc_step, ACC_GENESIS  # noqa: E402
+from verify import CHECKS, canonical, digest_of, chain_link_digest, chain_acc_step, ACC_GENESIS  # noqa: E402
 from keccak import keccak256  # noqa: E402
+
+BACKSLASH = chr(92)
 
 
 def py_verdict(kind, inp):
@@ -262,6 +270,94 @@ def mutations(kind, inp):
             m = json.loads(json.dumps(inp))
             m["decision_evidence"].setdefault("policy", {})["version"] = "substituted"
             out.append(("decision_evidence=policy-substitution", kind, m))
+    if kind == "canonical_bytes":
+        # v0.5.4 (issue #10): the raw-text pathway. Each text is paired with the canonical
+        # form a last-wins parser would produce, so an engine that fails open reads `valid`.
+        # Precedence cases (a duplicate beside a >4300-digit integer, both orders; a float
+        # token beside a duplicate) pin that text shape is decided before number tokens.
+        huge = "9" * 5000
+        texts = [
+            '{"a":1,"a":2}', '{"a":1,"' + BACKSLASH + 'u0061":2}', '{"a":{"b":1,"b":2}}',
+            '[{"a":1,"a":1}]', '{"a":"}","a":1}', '{"a' + BACKSLASH + '"":1,"a' + BACKSLASH + '"":2}',
+            '{"a":{"a":1},"b":[{"a":2},{"a":3}]}', '{"a":NaN}', '{"a":Infinity}', '{"a":-Infinity}',
+            '{"a":1', chr(0xFEFF) + '{"a":1}', '{"a":1} ', '{"a":' + huge + ',"a":1}',
+            '{"a":1,"a":' + huge + '}', '{"a":' + huge + '}', '{"a":2.0,"a":1}', '{"a":1,"a":2.0}',
+            '{"a":[1,2],"a":3}', '{"k":"v","v":1}', '{"a":[{"a":1}],"a":2}', '{"a":["b","c"],"b":1}',
+            '{"a":{"b":[1,{"c":2}],"c":3},"a":4}', '[{"a":[{"b":1,"b":2}]}]',
+        ]
+        if isinstance(inp.get("payload_text"), str):
+            t = inp["payload_text"]
+            texts += [t[:-1], chr(0xFEFF) + t, t + " ", t.replace("{", '{"dup":0,"dup":0,', 1)]
+        for n, text in enumerate(texts):
+            try:
+                claimed = canonical(json.loads(text))
+            except Exception:
+                claimed = inp.get("claimed_canonical")
+            out.append((f"payload_text=battery-{n}", kind, {"payload_text": text, "claimed_canonical": claimed}))
+        for tag, value in (("number", 2), ("null", None), ("array", ["{}"]), ("object", {}), ("true", True)):
+            out.append((f"payload_text={tag}", kind, {"payload_text": value, "claimed_canonical": json.dumps(value)}))
+    if kind == "independence_claim":
+        # v0.5.4 (issue #8): a fixed list of alias forms per class of the identifier rule, on the
+        # first party and on the first attestor, and the whitespace characters the two hosts'
+        # strip functions disagree on (U+001C-U+001F and U+0085 are Python-only, U+FEFF
+        # JavaScript-only).
+        def id_variants(ident):
+            vs = [(f"ws-{c:04x}-{side}", (chr(c) + ident) if side == "pre" else (ident + chr(c)))
+                  for c in (0x0B, 0x1C, 0x1F, 0x85, 0xA0, 0x2028, 0x3000, 0xFEFF) for side in ("pre", "post")]
+            vs.append(("upper", ident.upper()))
+            if ident.lower().startswith("0x"):
+                vs += [("caip10", "eip155:8453:" + ident), ("did-pkh", "did:pkh:eip155:1:" + ident),
+                       ("caip10-upper", "EIP155:1:" + ident.upper()[:2].lower() + ident.upper()[2:]),
+                       ("caip10-trail", "eip155:1:" + ident + "/"), ("caip10-longer", "eip155:1:" + ident + "0"),
+                       ("did-ethr", "did:ethr:" + ident), ("ethereum", "ethereum:" + ident),
+                       ("did-ethr-network", "did:ethr:0x1:" + ident), ("acct", "acct:" + ident),
+                       ("org", "org:" + ident)]
+            if ":" in ident and not ident.lower().startswith("0x"):
+                scheme, path = ident.split(":", 1)
+                vs += [("trail-dot", ident + "."), ("trail-hash", ident + "#"), ("trail-slash", ident + "/"),
+                       ("trail-mixed", ident + "/.#"), ("enc-dot", ident + "%2E"), ("enc-dot-lc", ident + "%2e"),
+                       ("enc-slash", ident + "%2F"), ("enc-space", ident + "%20"), ("enc-pct", ident + "%25"),
+                       ("enc-bad", ident + "%zz"), ("enc-short", ident + "%2"),
+                       ("enc-first", f"{scheme}:%{ord(path[0]):02X}{path[1:]}"),
+                       ("enc-first-lc", f"{scheme}:%{ord(path[0]):02x}{path[1:]}"),
+                       ("scheme-upper", scheme.upper() + ":" + path), ("empty-path", scheme + ":/"),
+                       ("empty-path-hash", scheme + ":#."),
+                       ("enc-tilde", ident + "%7E"), ("enc-underscore", ident + "%5f"),
+                       ("enc-digit", ident + "%30"), ("enc-letter", ident + "%41"),
+                       ("enc-pct-then-hex", ident + "%2541"), ("enc-assembled", ident + "%%34%31"),
+                       ("dot-seg-trail", ident + "/."), ("dotdot-seg-trail", ident + "/x/.."),
+                       ("dot-seg-lead", f"{scheme}:./{path}"), ("dotdot-seg-lead", f"{scheme}:../{path}"),
+                       ("dot-seg-mid", f"{scheme}:{path}/./x"),
+                       ("enc-dotdot-seg", ident + "/x/%2E%2E"), ("dots-not-seg", ident + "/..x/.y/..."),
+                       ("query-empty", ident + "?"), ("query", ident + "?a=b"),
+                       ("fragment", ident + "#x"), ("fragment-then-trail", ident + "#x/."),
+                       ("caip10-of-urn", "eip155:1:" + path)]
+                if "-" in path:
+                    vs += [("enc-hyphen", ident.replace("-", "%2D", 1)), ("double-enc", ident.replace("-", "%252D", 1))]
+            return vs
+
+        if isinstance(inp.get("attestations"), list) and inp["attestations"] \
+                and isinstance(inp["attestations"][0], dict) and isinstance(inp["attestations"][0].get("by"), str):
+            for tag, by in id_variants(inp["attestations"][0]["by"]):
+                m = json.loads(json.dumps(inp))
+                m["attestations"][0]["by"] = by
+                out.append((f"attestor=alias-{tag}", kind, m))
+        if isinstance(inp.get("parties"), list) and inp["parties"] and isinstance(inp["parties"][0], str):
+            for tag, party in id_variants(inp["parties"][0]):
+                m = json.loads(json.dumps(inp))
+                m["parties"][0] = party
+                out.append((f"party=alias-{tag}", kind, m))
+        if isinstance(inp.get("settlement_result"), dict):
+            for c in (0x1C, 0x85, 0xFEFF, 0xA0):
+                for key in ("transaction", "network"):
+                    m = json.loads(json.dumps(inp))
+                    m["settlement_result"][key] = chr(c)
+                    out.append((f"settlement_result.{key}=ws-only-{c:04x}", kind, m))
+    # v0.5.4: digests strip the same closed whitespace set in both engines.
+    for key in ("expected_digest", "artifact_digest", "expected_link", "subject_digest", "anchored_digest"):
+        if isinstance(inp.get(key), str):
+            for c in (0x1C, 0x85, 0xFEFF):
+                with_key(key, chr(c) + inp[key], f"{key}=ws-pad-{c:04x}")
     if kind == "offer_binding":
         # Regression for key absence versus an explicit JSON null. Python previously used
         # indexing while JS canonicalization received undefined; a refactor to `.get()` can

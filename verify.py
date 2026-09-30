@@ -139,36 +139,106 @@ DIGEST_RE = re.compile(r"^0x[0-9a-f]{64}$")
 # no format chars. Case and trailing punctuation are then FOLDED AWAY (see _norm_addr) so a
 # party cannot alias itself outside the transaction with a case variant or a trailing slash.
 URN_RE = re.compile(r"^[a-z][a-z0-9+.-]*:[\x21-\x7e]+$")
+# v0.5.4: the grammar is checked BEFORE case folding in either case (letter case folds toward
+# the same party, the scheme's included — RFC 3986 §3.1 schemes are case-insensitive; n58), and
+# the lowercase form must still match URN_RE AFTER normalization (a non-empty path; n51).
+URN_ANY_CASE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:[\x21-\x7e]+$")
+PCT_RE = re.compile(r"%([0-9A-Fa-f]{2})")
+UNRESERVED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+
+# The whitespace stripped from identifiers and digests, and the whitespace a `transaction` or
+# `network` string must contain something besides: the Unicode White_Space property (PropList),
+# enumerated, never the host language's strip()/trim(). Python's str.strip() also removes
+# U+001C-U+001F (control characters); JavaScript's trim() also removes U+FEFF (a format
+# character) and does not remove U+0085. Neither extra is whitespace, and the two engines forked
+# on exactly those inputs until v0.5.4. A character without the property at the edge of an
+# identifier (U+FEFF, a format character; U+001C, a control character) leaves it unparseable, as
+# one inside it does (n14, n52, n53). Some control characters (U+0009-U+000D, U+0085) do have the
+# property and are stripped.
+WHITESPACE = "".join(chr(c) for c in (
+    0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0x85, 0xA0, 0x1680,
+    *range(0x2000, 0x200B), 0x2028, 0x2029, 0x202F, 0x205F, 0x3000,
+))
+
+
+def _strip_ws(s):
+    return s.strip(WHITESPACE)
+
+
+def _decode_unreserved(s):
+    """Decode percent-encoded UNRESERVED characters only (RFC 3986 §6.2.2.2): one left-to-right
+    pass, either hex case. A triplet encoding anything else (a reserved character, `%` itself,
+    a non-ASCII octet) is left in place, and its `%` then makes the identifier unparseable."""
+    def one(m):
+        ch = chr(int(m.group(1), 16))
+        return ch if ch in UNRESERVED else m.group(0)
+    return PCT_RE.sub(one, s)
 
 
 def _norm_addr(a):
     """A canonical party identifier, or None if not parseable as one.
 
     Two syntaxes: a 0x-address (lowercased — EIP-55 mixed case is the same address) or a
-    scheme-qualified identifier. The URN branch normalises AGGRESSIVELY toward "same party":
-    case-folded, and trailing `/` `.` `#` stripped. The verifier does not own any scheme's
-    equivalence rules, so where two identifiers MIGHT denote one party it must treat them as
-    one — a deployer writing `org:caldera-robotics/` is otherwise "outside the transaction"
-    for free, which is n13's alias bypass one syntax over (found in the self-review that
-    shipped p21/n30). The cost is that a genuinely distinct party whose identifier differs
-    only by case or trailing punctuation is read as the same party and the claim rejects;
-    for a disqualification that is the correct direction to be wrong in."""
+    scheme-qualified identifier. The URN branch normalises AGGRESSIVELY toward "same party",
+    in this order (v0.5.4): percent-encoded unreserved characters decoded, once (n55, n56); any
+    `%` left over fails closed; a `?` anywhere, or a dot-segment (`.` or `..`) in the path, fails
+    closed (n59-n61); case-folded; every trailing `/` `.` `#` stripped; a `#` left after that (a
+    non-empty fragment) fails closed (n62); the result must still parse.
+    The verifier does not own any scheme's equivalence rules, so where two identifiers MIGHT
+    denote one party it must treat them as one — a deployer writing `org:caldera-robotics/`,
+    `org:Caldera-robotics` or `org:caldera%2Drobotics` is otherwise "outside the transaction"
+    for free, which is n13's alias bypass one syntax over (n31, n45-n49). Where it cannot tell
+    at all (`%2F`, which some schemes read as `/` and RFC 3986 does not), the identifier is not
+    evaluable (n50). Decoding runs BEFORE the trailing strip, so an encoded trailing `.` is
+    stripped too (n49). The cost is that a genuinely distinct party whose identifier differs
+    only by these folds is read as the same party and the claim rejects; for a disqualification
+    that is the correct direction to be wrong in."""
     if not isinstance(a, str):
         return None
-    a = a.strip()
+    a = _strip_ws(a)
     low = a.lower()
     if ADDR_RE.fullmatch(low):
         return low
-    if URN_RE.fullmatch(a):
-        return low.rstrip("/.#")
-    return None
+    if not URN_ANY_CASE_RE.fullmatch(a):
+        return None
+    ident = _decode_unreserved(a)
+    if "%" in ident or "?" in ident:
+        return None
+    # RFC 3986 §3.3 dot-segments: the complete segments `.` and `..` of the path, which runs from
+    # the scheme's colon to the first `?` or `#`. A normalizer may resolve them (§6.2.2.3); this
+    # verifier does not own the scheme's resolution rules, so it cannot evaluate them (n59/n60;
+    # n67 and n70 at the path's first segment).
+    # Checked BEFORE the trailing strip, which would otherwise turn `…/witness/..` into
+    # `…/witness`, a different identifier from the `…/` it resolves to.
+    path = re.split(r"[?#]", ident.split(":", 1)[1], maxsplit=1)[0]
+    if any(seg in (".", "..") for seg in path.split("/")):
+        return None
+    ident = ident.lower().rstrip("/.#")
+    if "#" in ident:
+        return None
+    return ident if URN_RE.fullmatch(ident) else None
 
+
+def _address_key(ident):
+    """The 0x-address a normalized identifier names, or None (v0.5.4, n63-n66/n69/p37/p38).
+
+    A 0x-address is its own key. A scheme-qualified identifier whose final colon-separated
+    component is a 0x-address, whatever the scheme (the CAIP-10 account eip155:8453:0x…,
+    did:pkh:eip155:1:0x…, did:ethr:0x…, ethereum:0x…, acct:0x…), names that address in another
+    namespace, so it keys to it. Two identifiers with one key are one party, whichever side
+    carries which form and whatever the chain reference: the verifier does not know which
+    chains a key holder controls, and folding toward same party is the direction it can afford
+    to be wrong in."""
+    if ADDR_RE.fullmatch(ident):
+        return ident
+    last = ident.rsplit(":", 1)[-1]
+    return last if ADDR_RE.fullmatch(last) else None
 
 def _norm_digest(x):
     """Lowercased 0x-32-byte digest, or None if not parseable as one."""
     if not isinstance(x, str):
         return None
-    x = x.strip().lower()
+    x = _strip_ws(x).lower()
     return x if DIGEST_RE.fullmatch(x) else None
 
 
@@ -195,18 +265,60 @@ def check_digest_recompute(inp):
     return "valid", None, got
 
 
+class NotIJSONText(ValueError):
+    """Raw JSON text outside I-JSON (RFC 7493): no RFC 8785 canonical form exists for it."""
+
+
+def _reject_duplicate_names(pairs):
+    """object_pairs_hook: duplicate object names are outside I-JSON (RFC 7493 §2.3; RFC 8785
+    §3.1). Compares DECODED names, so {"a":1,"\\u0061":2} is a duplicate (n42)."""
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        dupes = sorted({k for k in keys if keys.count(k) > 1})
+        raise NotIJSONText(f"duplicate object name(s) {dupes} — not valid I-JSON")
+    return dict(pairs)
+
+
+def _reject_constant(token):
+    """parse_constant: Python's json accepts NaN / Infinity / -Infinity; RFC 8259 has no such tokens."""
+    raise NotIJSONText(f"{token} is not a JSON token")
+
+
+def _parse_ijson_text(text):
+    """Two passes, so the text's shape is decided before its numbers, as in the TS engine.
+
+    Pass 1 keeps every number token as text (`parse_int=str`, `parse_float=str`), so nothing
+    about a number can raise before a duplicate name or a non-JSON constant anywhere in the
+    text is found: without it, `{"a":<5000 digits>,"a":1}` read number_domain_reject here and
+    canonicalization_reject in TS. Pass 2 then parses numbers for the digest-domain check."""
+    if not isinstance(text, str):
+        raise NotIJSONText(f"payload_text must be a JSON string, got {type(text).__name__}")
+    try:
+        json.loads(text, object_pairs_hook=_reject_duplicate_names, parse_constant=_reject_constant,
+                   parse_int=str, parse_float=str)
+    except json.JSONDecodeError as exc:
+        raise NotIJSONText(f"payload_text is not JSON text: {exc}") from None
+    return json.loads(text)
+
+
 def check_canonical_bytes(inp):
     # `payload_text` carries the payload as raw JSON text where the distinction under
-    # test cannot survive a JSON load in every language (a JS JSON.parse collapses the
-    # token 2.0 to the value 2, so a value-carrying vector cannot express an
-    # integer-valued float). Key presence, not sentinel, per the cross-language guard
-    # convention. Python's json preserves float-ness, so the existing domain guard in
-    # canonical() is the enforcement; the TS engine enforces the same boundary at the
-    # token level. Boundary: a number TOKEN with a fraction or exponent part is outside
-    # the digest domain even when integer-valued.
+    # test cannot survive a JSON load in every language: plain JSON.parse erases the token
+    # 2.0 to the value 2 (this repo's TypeScript vector loader did until v0.5.1; its reviver
+    # now maps such a token to NaN), while Python's json keeps 2.0 a float; `payload_text`
+    # carries the distinction to both engines.
+    # Key presence, not sentinel, per the cross-language guard convention. The raw-text
+    # pathway is the one place JSON text is parsed after load, so
+    # it carries the loader's rules itself (v0.5.4, issue #10): text with a duplicate name,
+    # a non-JSON constant, text that is not JSON, or a value that is not a string has no
+    # canonical form -> canonicalization_reject (p30/n41-n44). Boundary: a number TOKEN with
+    # a fraction or exponent part is outside the digest domain even when integer-valued ->
+    # number_domain_reject (p25/n35).
     try:
-        payload = json.loads(inp["payload_text"]) if "payload_text" in inp else inp["payload"]
+        payload = _parse_ijson_text(inp["payload_text"]) if "payload_text" in inp else inp["payload"]
         got = canonical(payload)
+    except NotIJSONText as exc:
+        return "reject", "canonicalization_reject", str(exc)
     except ValueError as exc:
         return "reject", "number_domain_reject", str(exc)
     if got != inp["claimed_canonical"]:
@@ -543,9 +655,9 @@ def derive_settlement_commits(result):
     if not isinstance(result, dict):
         return commits
     tx = result.get("transaction")
-    if result.get("success") is True and isinstance(tx, str) and tx.strip() != "":
+    if result.get("success") is True and isinstance(tx, str) and _strip_ws(tx) != "":
         commits.append("settlement")
-    if isinstance(result.get("network"), str) and result["network"].strip() != "":
+    if isinstance(result.get("network"), str) and _strip_ws(result["network"]) != "":
         commits.append("network")
     return commits
 
@@ -641,11 +753,14 @@ def check_independence_claim(inp):
     if not isinstance(raw_parties, list) or not raw_parties:
         return "reject", "independence_reject", "independence claimed but parties are not evaluable"
     parties = set()
+    party_keys = set()
     for p in raw_parties:
         norm = _norm_addr(p)
         if norm is None:
             return "reject", "independence_reject", f"unparseable party identifier {p!r}"
         parties.add(norm)
+        if _address_key(norm) is not None:
+            party_keys.add(_address_key(norm))
     raw_attestations = inp.get("attestations")
     if not isinstance(raw_attestations, list) or not raw_attestations:
         return "reject", "independence_reject", "independence claimed with no evaluable attestations"
@@ -656,7 +771,7 @@ def check_independence_claim(inp):
         by = _norm_addr(a["by"])
         if by is None:
             return "reject", "independence_reject", f"unparseable attestor identifier {a['by']!r}"
-        if by not in parties:
+        if by not in parties and _address_key(by) not in party_keys:
             outside += 1
     if not outside:
         return "reject", "independence_reject", "attested only by parties to the transaction"
@@ -730,14 +845,8 @@ REQUIRED_REASONS = frozenset({
 
 def _load_strict(path):
     """json load that REJECTS duplicate object names (RFC 7493 / RFC 8785 precondition)."""
-    def hook(pairs):
-        keys = [k for k, _ in pairs]
-        if len(keys) != len(set(keys)):
-            dupes = sorted({k for k in keys if keys.count(k) > 1})
-            raise ValueError(f"duplicate object name(s) {dupes} — not valid I-JSON")
-        return dict(pairs)
     with open(path, encoding="utf-8") as f:
-        return json.load(f, object_pairs_hook=hook)
+        return json.load(f, object_pairs_hook=_reject_duplicate_names)
 
 
 def main():

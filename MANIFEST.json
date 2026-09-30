@@ -1,9 +1,9 @@
 {
   "suite": "evidence-record-conformance",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "layer": "evidence-record",
   "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core \u2014 a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
-  "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) \u2014 the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected",
+  "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) \u2014 the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected, at load and inside `payload_text`, where names compare after decoding and only within one object (canonicalization_reject; p30/n41/n42); a `payload_text` that is not a string holding JSON text (a non-JSON constant such as NaN, text that does not parse) rejects the same way (n43/n44), and its shape is decided before its number tokens",
   "content_address": "keccak256(utf8(canonical(payload)))",
   "chain_link": "keccak256(artifact_digest || prev_digest || seq_uint64_be) \u2014 wire form of a genesis predecessor is null; 32 zero bytes is the hashing-time substitution for null",
   "chain_set": "records chain raw artifact digests via prev pointers (genesis prev = null); head.digest equals the final record's artifact digest; completeness = every seq 1..head.seq present exactly once (a second record at an occupied seq rejects: n39); where a record presents a link, it must recompute as keccak256(artifact || prev || seq_be8)",
@@ -11,10 +11,10 @@
   "anchor_relation": "anchored_digest = sha256(subject_digest_bytes)",
   "offer_binding": "receipt.offerDigest = keccak256(utf8(canonical(offer))); a receipt that commits to no offer digest cannot bind terms and fails closed",
   "decision_evidence_binding": "within this suite, record.decisionEvidenceDigest = keccak256(utf8(canonical(decision_evidence))); a record presented as authority-decision evidence must bind the exact object. This instantiates the general match/missing/mismatch binding property and does not prescribe a digest, canonicalization, or field location for AUEC, MCP, or another protocol; producer truth and decision semantics remain out of scope",
-  "identifier_normalization": "two identity syntaxes, both evaluated by every criterion that compares identity (pinned by one accepting vector each under the per-kind two-sided gate): 0x-addresses compare after strip + lowercase; scheme-qualified identifiers (lowercase alnum scheme, one colon, printable non-space ASCII path) compare after strip, case-significant; digests compare after strip + lowercase; identifiers that do not parse after normalization fail closed",
+  "identifier_normalization": "two identity syntaxes, both evaluated by every criterion that compares identity (pinned by one accepting vector each under the per-kind two-sided gate). Every identifier, whether in `parties` or an attestation's `by`, is normalized by one rule and compared only after it; the rule folds toward SAME PARTY, and an identifier it cannot decide does not parse. (1) Strip leading and trailing characters with the Unicode White_Space property, U+0009-U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000-U+200A, U+2028, U+2029, U+202F, U+205F and U+3000, and no others (n13/p33); a character without the property is not stripped, so an identifier padded with U+FEFF (a format character) or U+001C (a control character without the property) does not parse (n52/n53). (2) A 0x-address (0x and 40 hex digits, either case) compares lowercased, so an EIP-55 checksum variant is the same address. (3) Otherwise the identifier must be a scheme-qualified identifier in ASCII: a letter, then letters, digits, `+`, `.` or `-`, then one colon, then one or more printable non-space ASCII characters, letters in either case. Every percent-encoded triplet (either hex case) that encodes an unreserved character (A-Z a-z 0-9 `-` `.` `_` `~`) is decoded, in one left-to-right pass that is never repeated (RFC 3986 sections 6.2.2.2 and 2.4; n48/n49/n54/p32/p34); if any `%` remains, the identifier does not parse (n50/n55/n56). If it contains `?` (a query component), or its path, from the colon to the first `?` or `#`, has a segment that is exactly `.` or `..` (a dot-segment, RFC 3986 section 3.3), it does not parse (n59/n60/n61/n67/n70; neither class has an accepting twin, and p36, dots within segments, is the near-miss that accepts beside the dot-segments). The result is lowercased, the scheme included (n45/n58/p31), and every trailing `/`, `.` and `#` is removed (n31/n46/n47/p31); if a `#` remains (a fragment with content), it does not parse (n62; p31's trailing `#` alone is the near-miss that accepts); and it must still match the grammar with a lowercase scheme and a non-empty path (n51). (4) Anything else does not parse (n14). (5) Two identifiers name the same party when they are equal after normalization, or when both name the same 0x-address: a 0x-address names itself, and a scheme-qualified identifier whose final colon-separated component is a 0x-address (a CAIP-10 account such as eip155:8453:0x..., a did:pkh such as did:pkh:eip155:1:0x...) names that address, whatever the scheme (did:ethr:0x..., ethereum:0x..., acct:0x... as well), on either side and whatever the chain reference (n63/n64/p37 for CAIP-10 and did:pkh; n65/n66/n69/p38 for other schemes, acct: included). An identifier that does not parse after normalization fails the claim closed: it is never counted outside the parties. Not folded, and pinned by no vector: scheme-specific equivalences beyond these (RFC 3986 section 6.2.3, such as a default port) and names that resolve to an address (an ENS name, a did:web); two such identifiers compare as distinct. Digests compare after the same whitespace strip, lowercased",
   "witnessed_inclusion": "witness material (a cosigned checkpoint, inclusion proofs) presented beside a chain set is permitted and NOT load-bearing for completeness: it evidences existence and the log's consistency, never no-omission; a set with a gap rejects on the gap regardless of how many parties cosigned the log (p24/n34). Completeness requires a non-party attestation over the sequence itself, made at issuance",
   "duplicate_sequence": "a sequence attested only by its issuer evidences ordering, not that no other record carries the same `seq` and `correctionSeq`. Two records at one seq in a presented set reject on the duplicate, whatever the issuer attests (p28/n39; the issuer's `attestations` are permitted and not read). A record the issuer did not present is not in the bytes: the other record presented alone passes the structural chain_set predicate under the same head, and only a commitment over every link rejects it (p29/n40)",
-  "commitment_derivation": "an independence claim reaches exactly as far as the record's DERIVED commitments, never a declared list (n22-n24): `settlement` when settlement_result.success is true and transaction is a non-empty string; `network` when settlement_result.network is a non-empty string; `delivery` when keccak256(utf8(deliverable_bytes)) == deliverable_digest. A record presenting none of these fields has no evaluable commitments (a scoped claim rejects as unevaluable); a record presenting them and committing to none has an EMPTY commitment set (a scoped claim rejects as overreach). Who delivered is not read by the derivation \u2014 position is the independence axis, decided before scope is",
+  "commitment_derivation": "an independence claim reaches exactly as far as the record's DERIVED commitments, never a declared list (n22-n24): `settlement` when settlement_result.success is true and transaction is a string that is not empty after the whitespace strip of identifier_normalization; `network` when settlement_result.network is such a string; `delivery` when keccak256(utf8(deliverable_bytes)) == deliverable_digest. A record presenting none of these fields has no evaluable commitments (a scoped claim rejects as unevaluable); a record presenting them and committing to none has an EMPTY commitment set (a scoped claim rejects as overreach). Who delivered is not read by the derivation \u2014 position is the independence axis, decided before scope is",
   "field_naming": "harness-level input keys are snake_case (settlement_result, deliverable_bytes, decision_evidence, boundary_event); a key that quotes a protocol's own field keeps that protocol's wire spelling wherever it sits (payTo, resourceUrl, offerDigest, decisionEvidenceDigest). Contributed vectors follow the same two rules; the suite does not rename a protocol's fields to match its own, and does not camelCase its own",
   "vector_provenance": "every entry names `author`, the GitHub account that authored the commit adding the vector (git log --diff-filter=A -- vectors/<file>), and `origin` = {class, source}. origin.class is closed: synthetic (inputs constructed in tools/gen_vectors.py); live-ledger (a record from the live ledger, unaltered, with a provenance block in the vector); live-ledger-derived (a live-ledger value reused or altered); contributed (an outside contributor's PR, commit, fixture or published reproduction, named in origin.source, including vectors written here on such material). Generation fails if a vector has no entry, if its live-ledger class (or its lack of one) disagrees with the live-ledger values and provenance block in its own bytes, or if it carries a contributed fixture without crediting the contributor; authorship is not decided at generation: it is checkable against git history with the command above. Credit for reporting a failure class is recorded in CONTRIBUTORS.md. Metadata only: neither engine reads it",
   "vectors": [
@@ -601,6 +601,340 @@
       }
     },
     {
+      "file": "p31-independence-urn-case-and-trailing-punctuation-outside-party.json",
+      "kind": "independence_claim",
+      "expect": "valid",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "p32-independence-urn-percent-encoded-outside-party.json",
+      "kind": "independence_claim",
+      "expect": "valid",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "p33-independence-identifier-whitespace-set.json",
+      "kind": "independence_claim",
+      "expect": "valid",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n45-independence-urn-alias-case.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n46-independence-urn-alias-trailing-dot.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n47-independence-urn-alias-trailing-hash.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n48-independence-urn-alias-percent-encoded.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "contributed",
+        "source": "@stillmarcus24's probe in issue #8 (2026-09-29), his attestor verbatim on n31's parties, written here"
+      }
+    },
+    {
+      "file": "n49-independence-urn-alias-party-side-encoded-dot.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n50-independence-urn-percent-encoded-reserved.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n51-independence-urn-empty-after-normalization.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n52-independence-identifier-format-character-padding.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n53-independence-identifier-control-character-padding.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n58-independence-urn-alias-scheme-case.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "p34-independence-urn-percent-encoded-unreserved-set-outside-party.json",
+      "kind": "independence_claim",
+      "expect": "valid",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n54-independence-urn-alias-percent-encoded-unreserved-set.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n55-independence-urn-percent-encoded-percent-sign.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n56-independence-urn-triplet-assembled-by-decoding.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n59-independence-urn-alias-dot-segment.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n60-independence-urn-encoded-trailing-dot-segment.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n67-independence-urn-alias-leading-dot-segment.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n70-independence-urn-alias-leading-dot-dot-segment.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "p36-independence-urn-dots-within-segments-outside-party.json",
+      "kind": "independence_claim",
+      "expect": "valid",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n61-independence-urn-query-component.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n62-independence-urn-fragment-component.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n63-independence-address-alias-caip10-and-did-pkh.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n64-independence-address-alias-party-in-caip10.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "p37-independence-address-caip10-outside-party.json",
+      "kind": "independence_claim",
+      "expect": "valid",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n65-independence-address-alias-did-ethr.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n66-independence-address-alias-party-in-ethereum-namespace.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n69-independence-address-alias-any-scheme.json",
+      "kind": "independence_claim",
+      "expect": "reject",
+      "reason": "independence_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "p38-independence-address-other-namespaces-outside-party.json",
+      "kind": "independence_claim",
+      "expect": "valid",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
       "file": "p15-offer-binding.json",
       "kind": "offer_binding",
       "expect": "valid",
@@ -647,6 +981,92 @@
       "kind": "canonical_bytes",
       "expect": "reject",
       "reason": "number_domain_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "p30-canonical-bytes-name-repeated-across-objects.json",
+      "kind": "canonical_bytes",
+      "expect": "valid",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n41-canonical-bytes-duplicate-name.json",
+      "kind": "canonical_bytes",
+      "expect": "reject",
+      "reason": "canonicalization_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "contributed",
+        "source": "@Rul1an's reproduction in issue #10 (2026-09-29), his input verbatim, written here"
+      }
+    },
+    {
+      "file": "n42-canonical-bytes-escaped-duplicate-name.json",
+      "kind": "canonical_bytes",
+      "expect": "reject",
+      "reason": "canonicalization_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n43-canonical-bytes-non-json-constant.json",
+      "kind": "canonical_bytes",
+      "expect": "reject",
+      "reason": "canonicalization_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n44-canonical-bytes-text-not-a-string.json",
+      "kind": "canonical_bytes",
+      "expect": "reject",
+      "reason": "canonicalization_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n57-canonical-bytes-duplicate-name-after-array.json",
+      "kind": "canonical_bytes",
+      "expect": "reject",
+      "reason": "canonicalization_reject",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "p35-canonical-bytes-string-value-equal-to-a-name.json",
+      "kind": "canonical_bytes",
+      "expect": "valid",
+      "author": "Tersign (@wowlegend)",
+      "origin": {
+        "class": "synthetic",
+        "source": "inputs constructed in tools/gen_vectors.py"
+      }
+    },
+    {
+      "file": "n68-canonical-bytes-duplicate-name-in-nested-object.json",
+      "kind": "canonical_bytes",
+      "expect": "reject",
+      "reason": "canonicalization_reject",
       "author": "Tersign (@wowlegend)",
       "origin": {
         "class": "synthetic",

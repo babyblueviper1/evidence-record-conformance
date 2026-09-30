@@ -106,6 +106,14 @@ control, and proposed the gate: for every identifier syntax `identifier_normaliz
 evaluates, one accepting vector of each kind. That gate landed in `2f80fb2` with `p21` / `n30` /
 `n31`.
 
+**Duplicate names reach past load** — vector `n41`, from
+[#10](https://github.com/tersignhq/evidence-record-conformance/issues/10) (2026-09-29). He showed
+that the manifest's duplicate-name rule held at load only: `payload_text`, the one place JSON text
+is parsed after load, went through a plain `json.loads`, and `{"a":1,"a":2}` read valid against
+`{"a":2}`. He checked the Python engine; the TypeScript engine read the same. `n41` is his input,
+written here and classed `contributed`; `p30` and `n42`–`n44`, siblings on the same pathway, were
+written here (v0.5.4).
+
 ## [@mohammedmessaoudene-cmd](https://github.com/mohammedmessaoudene-cmd) — Mohammed Messaoudene
 
 **Authority-decision evidence binding** — vectors `p19` / `n27` / `n28`, merged from
@@ -195,6 +203,26 @@ third outcome with its own exit code. The vectors were written here. He then ran
 observed agreeing on all three, and declined to score himself on the vectors his verifier has no
 path to
 ([issuecomment-5234222504](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3004#issuecomment-5234222504)).
+
+## [@stillmarcus24](https://github.com/stillmarcus24)
+
+**The percent-encoded alias** — vector `n48`, from his full-set run in
+[#8](https://github.com/tersignhq/evidence-record-conformance/issues/8) (2026-09-29, against
+`0eda303`). He made percent-decoding switchable, ran the corpus under both readings, and
+published the probe that separates them: party `org:caldera-robotics`, attestor
+`org:caldera%2Drobotics`, valid under one reading and rejected under the other, with no vector to
+decide between them. `n48` is his attestor on n31's parties, written here and classed
+`contributed`; the other identifier vectors of v0.5.4 were written here.
+
+## @robertolocatelli81-dev (Noûs)
+
+**Unpinned classes, listed** — from the clean-room run in
+[#9](https://github.com/tersignhq/evidence-record-conformance/issues/9) (2026-09-29, against
+`0eda303`). Its per-vector reading listed the case fold of scheme identifiers, percent-encoding
+and duplicate object names among the classes no vector pinned. v0.5.4 adds vectors for all
+three: scheme case (`n58`, with `p31` on the accepting side), percent-encoding (`n48`–`n50`,
+`n54`–`n56`, `p32`, `p34`) and duplicate names (`n41`, `n42`, `n57`, `n68`, `p30`, `p35`); the vectors
+were written here.
 
 ## Reported upstream
 

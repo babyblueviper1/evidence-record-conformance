@@ -9,6 +9,7 @@ the genesis chain walked backwards through /v1/receipts/{digest}/verify)."""
 import hashlib
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,6 +31,9 @@ GENESIS_ARTIFACT = json.loads(
 )
 GENESIS_DIGEST = "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4"
 LEDGER_SIGNER = "0x9d38BA84730271eb27Ac9bD4Bd2620c08dB4FDa6"
+# A synthetic party address with hex letters in both cases, for the cross-namespace alias
+# vectors (n63-n66, n69, p37): the forms differ in case as well as in namespace.
+CA1DE_ADDR = "0xCa1De7A500000000000000000000000000000Bb0"
 GENESIS_COUNTERSIG = (
     "0xfccc1add7301c688e03311ff04b9aecac4f0d81a468fc95128b24aa0c8aff2bf"
     "3b148181befffc6dbe739b1991d936cd434a2fa2bcb8ea1f49a06b8f7a3fff1d1c"
@@ -1111,6 +1115,404 @@ vectors = [
             "attestations": [{"by": "org:caldera-robotics/"}],
         },
     },
+    # ---------------------------------------- identifier aliases (v0.5.4, issues #8 and #9)
+    # One rule, stated in the manifest's identifier_normalization and implemented step for step
+    # by both engines: strip the White_Space set; a 0x-address lowercases; otherwise the ASCII
+    # grammar (either case), percent-encoded UNRESERVED characters decoded once (RFC 3986
+    # §6.2.2.2, §2.4), any `%` or `?` left fails closed, a dot-segment fails closed, case folded,
+    # every trailing `/` `.` `#` removed, a `#` left fails closed, and the result must still
+    # parse; two identifiers naming one 0x-address are one party. Each alias class has a
+    # rejecting vector (a party's alias as attestor, or a form that is not evaluable). Where the
+    # class admits an accepting input, an accepting twin carries the form on a party OUTSIDE the
+    # transaction, so an engine that defends the class by refusing the form fails as hard as one
+    # that misses it. A class whose forms are never evaluable has no accepting twin; where a form
+    # close to the class is evaluable, a NEAR-MISS accepting vector carries it instead (p36 beside
+    # the dot-segments, p31's trailing `#` beside a fragment with content), and the rest have
+    # none (n50, n51, n55, n56, n61).
+    # n31's description predates v0.5.4 and its file stays byte-identical; its closing sentence
+    # on percent-encoding is superseded by n48-n50.
+    {
+        "id": "p31-independence-urn-case-and-trailing-punctuation-outside-party",
+        "kind": "independence_claim",
+        "expect": "valid",
+        "description": "Accepting twin of n31, n45-n47 and n58: letter case (the scheme's included) and a trailing `#`, `/` and `.`, on one attestor OUTSIDE the parties written three ways. Normalization folds each to org:trustline-custody/eu-west, which is not a party, so the claim holds. An engine that defends the alias classes by refusing the forms, failing closed on an upper-case letter or on any one of a trailing `/` `.` `#`, rejects here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [
+                {"by": "Org:Trustline-Custody/EU-West#"},
+                {"by": "org:trustline-custody/eu-west/"},
+                {"by": "org:trustline-custody/eu-west."},
+            ],
+        },
+    },
+    {
+        "id": "p32-independence-urn-percent-encoded-outside-party",
+        "kind": "independence_claim",
+        "expect": "valid",
+        "description": "Accepting twin of n48/n49: percent-encoded unreserved characters on an attestor outside the parties, one triplet in each hex case. They decode (RFC 3986 §6.2.2.2) to org:trustline-custody/eu-west, which is not a party, so the claim holds. An engine that fails closed on any `%`, or decodes only one hex case, rejects here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline%2dcustody/eu%2Dwest"}],
+        },
+    },
+    {
+        "id": "p33-independence-identifier-whitespace-set",
+        "kind": "independence_claim",
+        "expect": "valid",
+        "description": "Accepting twin for the whitespace set, whose rejecting side is n13 (a party padded with a space is that party). The set is the Unicode White_Space property, enumerated in identifier_normalization. Here an attestor outside the parties is padded with U+0085 and U+3000, and a party with U+00A0, all White_Space, so both identifiers parse and the claim holds. JavaScript's trim() does not remove U+0085, so an engine that strips with it rejects this input.",
+        "input": {
+            "claimed": "independent",
+            "parties": [chr(0xA0) + "org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": chr(0x85) + "org:trustline-custody/eu-west" + chr(0x3000)}],
+        },
+    },
+    {
+        "id": "n45-independence-urn-alias-case",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Alias bypass by letter case: the deployer attests as org:Caldera-robotics while the parties list carries org:caldera-robotics. Letter case folds toward the same party, so the record is attested only by parties. An engine that compares scheme-qualified identifiers case-significantly counts the alias as an outside attestor and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:Caldera-robotics"}],
+        },
+    },
+    {
+        "id": "n46-independence-urn-alias-trailing-dot",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Alias bypass by a trailing `.`. Every trailing `/` `.` `#` is removed before comparison, so org:caldera-robotics. is the party org:caldera-robotics. n31 pins the trailing `/`; an engine that strips only `/` accepts here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:caldera-robotics."}],
+        },
+    },
+    {
+        "id": "n47-independence-urn-alias-trailing-hash",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Alias bypass by a trailing `#` (an empty fragment). Every trailing `/` `.` `#` is removed before comparison, so org:caldera-robotics# is the party org:caldera-robotics. An engine that strips only `/` accepts here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:caldera-robotics#"}],
+        },
+    },
+    {
+        "id": "n48-independence-urn-alias-percent-encoded",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Alias bypass by percent-encoding. %2D encodes `-`, an unreserved character, and percent-encoded unreserved characters are decoded before comparison (RFC 3986 §6.2.2.2), so the attestor org:caldera%2Drobotics is the party org:caldera-robotics. Without decoding, the alias counts as an outside attestor and the record verifies as independent. The attestor is @stillmarcus24's probe from issue #8, on n31's parties.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:caldera%2Drobotics"}],
+        },
+    },
+    {
+        "id": "n49-independence-urn-alias-party-side-encoded-dot",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "The folds apply to the parties list as well as the attestors, and in order: decode, then fold case, then strip trailing punctuation. The party is written org:Caldera-Robotics%2e (an encoded trailing `.`), the attestor org:caldera-robotics. An engine that normalizes attestors only, or strips trailing punctuation before decoding, keeps the two distinct and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:Caldera-Robotics%2e", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:caldera-robotics"}],
+        },
+    },
+    {
+        "id": "n50-independence-urn-percent-encoded-reserved",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "A percent-encoding of a character that is not unreserved. RFC 3986 does not make %2F equivalent to `/`, and some schemes decode it anyway, so a verifier that owns no scheme's rules cannot decide which party the identifier names: it is not evaluable, and the claim fails closed as n14's does. This attestor is outside the parties under either reading, so the reject comes from the identifier rule alone; an engine that leaves the triplet in place, or decodes it, accepts. The same rule stops org:caldera-robotics%2F from counting as an attestor outside the transaction.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline-custody%2Feu-west"}],
+        },
+    },
+    {
+        "id": "n51-independence-urn-empty-after-normalization",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "An identifier that is empty after normalization: org:/ loses its trailing `/` and leaves no path. It names no party, so it cannot count as one outside the transaction; an identifier that does not parse after normalization fails closed. An engine that checks the grammar only before normalizing accepts here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:/"}],
+        },
+    },
+    {
+        "id": "n52-independence-identifier-format-character-padding",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "U+FEFF at the edge of an attestor identifier. It is a format character, not White_Space, so it is not stripped and the identifier does not parse, as U+200B inside one does not (n14): the claim fails closed. JavaScript's trim() removes U+FEFF, so an engine that strips with it counts this attestor, a party outside the transaction, as evaluable and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": chr(0xFEFF) + "org:trustline-custody/eu-west"}],
+        },
+    },
+    {
+        "id": "n53-independence-identifier-control-character-padding",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "U+001C at the edge of an attestor identifier. It is a control character, not White_Space, so it is not stripped and the identifier does not parse: the claim fails closed. Python's str.strip() removes U+001C-U+001F, so an engine that strips with it counts this attestor, a party outside the transaction, as evaluable and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline-custody/eu-west" + chr(0x1C)}],
+        },
+    },
+    {
+        "id": "n58-independence-urn-alias-scheme-case",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Alias bypass by the case of the scheme alone: the deployer attests as ORG:caldera-robotics while the parties list carries org:caldera-robotics. Schemes are case-insensitive (RFC 3986 section 3.1) and letter case folds in the scheme as in the path, so the record is attested only by parties. An engine that folds the path but keeps the scheme's case counts the alias as an outside attestor and accepts. p31 is the accepting side (an upper-case scheme on a party outside the transaction).",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "ORG:caldera-robotics"}],
+        },
+    },
+    {
+        "id": "p34-independence-urn-percent-encoded-unreserved-set-outside-party",
+        "kind": "independence_claim",
+        "expect": "valid",
+        "description": "The rest of the unreserved set (RFC 3986 section 2.3), percent-encoded on an attestor outside the parties: `_` (%5f), `~` (%7E), `-` (%2D), a digit (%32) and a letter (%41). Each triplet decodes, so the attestor is org:trustline_custody/eu~west-2a, which is not a party, and the claim holds. An engine whose unreserved set omits `_`, `~`, the digits or the letters leaves that triplet encoded, reads the identifier as not evaluable, and rejects here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline%5fcustody/eu%7Ewest%2D%32%41"}],
+        },
+    },
+    {
+        "id": "n54-independence-urn-alias-percent-encoded-unreserved-set",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Rejecting side of p34: the party is org:caldera_robotics~2 and the attestor writes it org:caldera%5Frobotics%7e%32. The triplets decode to `_`, `~` and `2`, so the attestor is the party and the record is attested only by parties. An engine that checks the decoded form for a leftover `%` but compares the identifier as written counts the alias as an outside attestor and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera_robotics~2", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:caldera%5Frobotics%7e%32"}],
+        },
+    },
+    {
+        "id": "n55-independence-urn-percent-encoded-percent-sign",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Decoding runs once. The attestor ends in %2574: %25 encodes `%` itself, which is not unreserved, so it stays encoded, a `%` remains, and the identifier is not evaluable. RFC 3986 section 2.4: implementations must not decode the same string more than once. An engine that decodes %25 and then decodes again reads %74 as `t`, gets org:trustline-custody/eu-west, a party outside the transaction, and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline-custody/eu-wes%2574"}],
+        },
+    },
+    {
+        "id": "n56-independence-urn-triplet-assembled-by-decoding",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Decoding runs once, in one left-to-right pass. The attestor ends in %%37%34: the first `%` begins no triplet, and %37 %34 decode to `7` and `4`, so one pass leaves %74 and the identifier is not evaluable. An engine that repeats the unreserved decode until nothing changes decodes the %74 it assembled into `t`, gets org:trustline-custody/eu-west, a party outside the transaction, and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline-custody/eu-wes%%37%34"}],
+        },
+    },
+    {
+        "id": "n59-independence-urn-alias-dot-segment",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Alias bypass by a dot-segment. agent:caldera/./ap-pilot resolves, by RFC 3986's remove_dot_segments (sections 5.2.4 and 6.2.2.3), to the party agent:caldera/ap-pilot. This verifier does not own a scheme's resolution rules, so a path with a `.` or `..` segment is not evaluable and the claim fails closed. An engine that compares the form as written counts it as an outside attestor and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "agent:caldera/./ap-pilot"}],
+        },
+    },
+    {
+        "id": "n60-independence-urn-encoded-trailing-dot-segment",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "A `..` segment written as %2E%2E at the end of an attestor outside the parties. It decodes to `..`, a dot-segment, so the identifier is not evaluable, and the reject comes from the identifier rule alone. The check runs after decoding and before the trailing strip. An engine that looks for dot-segments before decoding, that looks only for `.`, or that strips the trailing `/..` first reads org:trustline-custody/eu-west/witness and accepts; so does one that resolves the segments. Under the same rule, agent:caldera/ap-pilot/witness/.. never counts as an attestor outside the transaction.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline-custody/eu-west/witness/%2E%2E"}],
+        },
+    },
+    {
+        "id": "n67-independence-urn-alias-leading-dot-segment",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Alias bypass by a dot-segment at the start of the path. The path of org:./caldera-robotics runs from the scheme's colon, so its first segment is `.`, and RFC 3986's remove_dot_segments (section 5.2.4, step A) reads the identifier as the party org:caldera-robotics. A path with a `.` or `..` segment is not evaluable, the first segment included, and the claim fails closed. An engine that splits segments from the start of the whole identifier reads the first segment as `org:.`, finds no dot-segment, and accepts; so does one that skips the first segment.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:./caldera-robotics"}],
+        },
+    },
+    {
+        "id": "n70-independence-urn-alias-leading-dot-dot-segment",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "n67 with `..`: the path of org:../caldera-robotics starts with the segment `..`, and remove_dot_segments strips a leading `../` as it strips a leading `./` (RFC 3986 section 5.2.4, step A), reading the identifier as the party org:caldera-robotics. A path with a `.` or `..` segment is not evaluable, the first segment included, and the claim fails closed. An engine that catches a leading `./` but finds `..` only after a `/` accepts here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:../caldera-robotics"}],
+        },
+    },
+    {
+        "id": "p36-independence-urn-dots-within-segments-outside-party",
+        "kind": "independence_claim",
+        "expect": "valid",
+        "description": "Near-miss accepting vector for n59/n60/n67/n70: a dot-segment is never evaluable, so the class has no accepting twin; this vector carries an evaluable form beside it instead, dots that are not dot-segments, on an attestor outside the parties. The segments .well-known, ... and ..v2 are ordinary segments (only a complete `.` or `..` is a dot-segment, RFC 3986 section 3.3), so the identifier is evaluable, is not a party, and the claim holds. An engine that rejects any segment starting with a dot, or any run of dots, rejects here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline-custody/.well-known/.../..v2"}],
+        },
+    },
+    {
+        "id": "n61-independence-urn-query-component",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "A `?` in an identifier. It begins a query component (RFC 3986 section 3.4), and whether a query changes which party an identifier names is the scheme's rule, which this verifier does not own: the identifier is not evaluable and the claim fails closed. This attestor is outside the parties with or without its query, so the reject comes from the identifier rule alone; an engine that compares the form as written, or drops the query, accepts. Under the same rule org:caldera-robotics? never counts as an attestor outside the transaction. The class has no accepting side: no identifier containing `?` is evaluable.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline-custody/eu-west?role=witness"}],
+        },
+    },
+    {
+        "id": "n62-independence-urn-fragment-component",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "A non-empty fragment. After the trailing `/` `.` `#` are removed, a `#` that remains begins a fragment with content (RFC 3986 section 3.5), which may or may not name another party; the identifier is not evaluable and the claim fails closed. This attestor is outside the parties with or without its fragment, so the reject comes from the identifier rule alone; an engine that compares the form as written, or drops the fragment, accepts. Under the same rule org:caldera-robotics#witness never counts as an attestor outside the transaction. The class has no accepting twin; p31 is the near-miss that accepts, since a trailing `#` alone is removed.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["org:caldera-robotics", "agent:caldera/ap-pilot"],
+            "attestations": [{"by": "org:trustline-custody/eu-west#witness"}],
+        },
+    },
+    {
+        "id": "n63-independence-address-alias-caip10-and-did-pkh",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Alias bypass across namespaces. The party is a bare 0x-address; the attestors write the same address as a CAIP-10 account on chain 8453 and as a did:pkh on chain 1, in mixed case. An identifier whose final colon-separated component is a 0x-address names that address, so both attestors are the party and the record is attested only by parties. An engine that compares the forms as distinct identifiers, or recognizes only one of the two forms, counts an outside attestor and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": [CA1DE_ADDR.lower(), "0x3333333333333333333333333333333333333333"],
+            "attestations": [
+                {"by": "eip155:8453:" + CA1DE_ADDR},
+                {"by": "did:pkh:eip155:1:" + CA1DE_ADDR.lower()},
+            ],
+        },
+    },
+    {
+        "id": "n64-independence-address-alias-party-in-caip10",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "n63 with the forms swapped: the party is listed as the CAIP-10 account eip155:8453:<address>, and the attestors are the bare address and a did:pkh on another chain. Addresses compare by the address they name, whichever side carries which form and whatever the chain reference, so both attestors are the party. An engine that applies the rule only when the parties list carries the bare address accepts here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["eip155:8453:" + CA1DE_ADDR, "0x3333333333333333333333333333333333333333"],
+            "attestations": [
+                {"by": CA1DE_ADDR.lower()},
+                {"by": "did:pkh:eip155:1:" + CA1DE_ADDR},
+            ],
+        },
+    },
+    {
+        "id": "p37-independence-address-caip10-outside-party",
+        "kind": "independence_claim",
+        "expect": "valid",
+        "description": "Accepting side of n63/n64: an attestor written as a CAIP-10 account and one written as a did:pkh, both naming 0x4444...4444, an address that is not a party's. They are evaluable, outside the transaction, and the claim holds. An engine that refuses the CAIP-10 or did:pkh forms rejects here.",
+        "input": {
+            "claimed": "independent",
+            "parties": [CA1DE_ADDR.lower(), "0x3333333333333333333333333333333333333333"],
+            "attestations": [
+                {"by": "eip155:8453:0x4444444444444444444444444444444444444444"},
+                {"by": "did:pkh:eip155:1:0x4444444444444444444444444444444444444444"},
+            ],
+        },
+    },
+    {
+        "id": "n65-independence-address-alias-did-ethr",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "Alias bypass in a namespace outside CAIP-10 and did:pkh. The party is a bare 0x-address and the attestor writes it as did:ethr:<address>, in mixed case. The rule keys every scheme-qualified identifier whose final colon-separated component is a 0x-address to that address, not a list of known namespaces, so the attestor is the party and the record is attested only by parties. An engine that derives the address only for the CAIP-10 and did:pkh forms counts an outside attestor and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": [CA1DE_ADDR.lower(), "0x3333333333333333333333333333333333333333"],
+            "attestations": [{"by": "did:ethr:" + CA1DE_ADDR}],
+        },
+    },
+    {
+        "id": "n66-independence-address-alias-party-in-ethereum-namespace",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "n65 from the party side: the party is listed as ethereum:<address> and the attestor as did:ethr:<address>, so neither side carries the bare address, a CAIP-10 account or a did:pkh. Both identifiers end in the same 0x-address, so the attestor is the party. An engine that derives the address from any namespace on the attestor side but only from the bare, CAIP-10 or did:pkh forms on the party side accepts here.",
+        "input": {
+            "claimed": "independent",
+            "parties": ["ethereum:" + CA1DE_ADDR, "0x3333333333333333333333333333333333333333"],
+            "attestations": [{"by": "did:ethr:" + CA1DE_ADDR.lower()}],
+        },
+    },
+    {
+        "id": "n69-independence-address-alias-any-scheme",
+        "kind": "independence_claim",
+        "expect": "reject",
+        "reason": "independence_reject",
+        "description": "The address rule does not depend on the scheme. The party is a bare 0x-address and the attestor writes it as acct:<address>, in mixed case, under a scheme outside the CAIP-10, did:pkh, did:ethr and ethereum: forms that n63-n66 pin. Its final colon-separated component is the party's 0x-address, so the attestor is the party and the record is attested only by parties. An engine that derives the address only for a list of schemes (CAIP-10, did:pkh, did:ethr, ethereum: or any other finite list without acct:) counts an outside attestor and accepts.",
+        "input": {
+            "claimed": "independent",
+            "parties": [CA1DE_ADDR.lower(), "0x3333333333333333333333333333333333333333"],
+            "attestations": [{"by": "acct:" + CA1DE_ADDR}],
+        },
+    },
+    {
+        "id": "p38-independence-address-other-namespaces-outside-party",
+        "kind": "independence_claim",
+        "expect": "valid",
+        "description": "Accepting side of n65/n66/n69: attestors written as did:ethr:<address>, ethereum:<address> and acct:<address>, all naming 0x4444...4444, an address that is not a party's. They are evaluable, outside the transaction, and the claim holds. An engine that defends the address rule by refusing identifiers that end in a 0x-address outside a list of schemes (CAIP-10 and did:pkh, or those plus did:ethr and ethereum:) rejects here.",
+        "input": {
+            "claimed": "independent",
+            "parties": [CA1DE_ADDR.lower(), "0x3333333333333333333333333333333333333333"],
+            "attestations": [
+                {"by": "did:ethr:0x4444444444444444444444444444444444444444"},
+                {"by": "ethereum:0x4444444444444444444444444444444444444444"},
+                {"by": "acct:0x4444444444444444444444444444444444444444"},
+            ],
+        },
+    },
     # ------------------------------------------------------ offer binding (2-sided)
     {
         "id": "p15-offer-binding",
@@ -1150,11 +1552,12 @@ vectors = [
     # Integer-valued float token pair (p25/n35): found by @Rul1an's mutation-adequacy run
     # against this corpus (issue #1, 2026-08-23) — the corpus's only fractional number token
     # (n10) carries 1.1, so an engine weakened to accept integer-valued floats survives the
-    # whole suite. Underneath the corpus gap sat a live cross-engine divergence: Python's
-    # json preserves 2.0 as a float and canonical() rejects it; JSON.parse collapses the
-    # same wire bytes to the integer 2 and the TS engine accepted. The pair therefore
-    # carries the payload as RAW TEXT (`payload_text`) — the only form in which the
-    # distinction reaches both engines — and pins the boundary at the TOKEN class.
+    # whole suite. Underneath the corpus gap sat a live cross-engine divergence: the
+    # TypeScript loader (JSON.parse) erased the token, reading the wire bytes 2.0 as the
+    # integer 2, and the TS engine accepted; Python's json keeps 2.0 a float, and
+    # canonical() rejects it. The pair therefore puts the payload in RAW TEXT:
+    # `payload_text` carries the distinction to both engines, and the pair pins the
+    # boundary at the TOKEN class.
     {
         "id": "p25-integer-token-in-text",
         "kind": "canonical_bytes",
@@ -1169,6 +1572,76 @@ vectors = [
         "reason": "number_domain_reject",
         "description": "A number token with a fraction part whose VALUE is an integer: {\"amount\": 2.0}. The digest-domain boundary is the token class, not the value — JSON.parse collapses 2.0 to 2, so an engine reading parsed values sees a valid integer while an engine preserving float-ness rejects, and the two sign different verdicts over identical wire bytes. Rejecting the token class is the only deterministic cross-language rule. Kills the mutant that accepts integer-valued floats (survivor of the pre-p25 corpus, @Rul1an issue #4); the shipped Python engine already rejected, the shipped TS engine accepted until this pin.",
         "input": {"payload_text": '{"amount": 2.0}', "claimed_canonical": '{"amount":2}'},
+    },
+    # ------------------------------ raw-text pathway carries the loader's rules (v0.5.4)
+    # `payload_text` is the one place JSON text is parsed after load, and it was parsed with no
+    # duplicate-name check in either engine: {"a":1,"a":2} read valid against {"a":2} in both.
+    # Reported by @Rul1an (issue #10) against the Python engine; the TS engine read the same.
+    # Three siblings on the same pathway forked the engines: NaN (Python number_domain_reject,
+    # TS no verdict), a payload_text that is not a string (Python no verdict, TS valid), and
+    # text that does not parse. Text with no canonical form -> canonicalization_reject; the
+    # reject-reason closure stays at 10.
+    {
+        "id": "p30-canonical-bytes-name-repeated-across-objects",
+        "kind": "canonical_bytes",
+        "expect": "valid",
+        "description": "Accepting twin of n41/n42: one name repeated across DISTINCT objects is not a duplicate. In {\"a\":{\"a\":1},\"b\":[{\"a\":2},{\"a\":3}]} every object's own names are unique, so the text is I-JSON and its canonical form compares. A duplicate-name check whose key set spans more than one object rejects this and fails here, per the two-sided gate.",
+        "input": {"payload_text": '{"a":{"a":1},"b":[{"a":2},{"a":3}]}', "claimed_canonical": '{"a":{"a":1},"b":[{"a":2},{"a":3}]}'},
+    },
+    {
+        "id": "n41-canonical-bytes-duplicate-name",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "Duplicate object names inside payload_text: {\"a\":1,\"a\":2}, claimed canonical {\"a\":2}, the form a last-wins parser produces. RFC 8785 §3.1 requires input without duplicate property names (RFC 7493 §2.3 forbids them), so the text has no canonical form to compare against. The duplicate-name rule applies to payload_text as it does to the vector file at load. Input from @Rul1an's report (issue #10).",
+        "input": {"payload_text": '{"a":1,"a":2}', "claimed_canonical": '{"a":2}'},
+    },
+    {
+        "id": "n42-canonical-bytes-escaped-duplicate-name",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "n41's duplicate with the second name written as a JSON escape (backslash-u0061 is \"a\"). Names compare after decoding, the form RFC 8785 sorts them in; a detector that compares raw key tokens misses the duplicate and fails here.",
+        "input": {"payload_text": '{"a":1,"' + chr(92) + 'u0061":2}', "claimed_canonical": '{"a":2}'},
+    },
+    {
+        "id": "n43-canonical-bytes-non-json-constant",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "A NaN token inside payload_text. RFC 8259 has no such token: Python's json accepts it by default and JSON.parse refuses it, so an engine that inherits either default returns number_domain_reject or no verdict at all. Text that is not JSON has no canonical form, in both engines.",
+        "input": {"payload_text": '{"amount":NaN}', "claimed_canonical": '{"amount":0}'},
+    },
+    {
+        "id": "n44-canonical-bytes-text-not-a-string",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "payload_text that is not a string. JSON.parse coerces the number 2 to the text \"2\", so an engine that passes the value straight to it reads a valid canonical form; Python's json raises on a non-string and returns no verdict. The raw-text pathway carries JSON TEXT, and any other value rejects.",
+        "input": {"payload_text": 2, "claimed_canonical": "2"},
+    },
+    {
+        "id": "n57-canonical-bytes-duplicate-name-after-array",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "A duplicate name that follows an array value: in {\"a\":[1,2],\"a\":3} the second `a` repeats a name of the same object. The comma inside the array separates elements, not names, and the object's names stay in scope across the array. A duplicate-name scanner that does not track arrays reads that comma as the object's and loses the object at the array's close, misses the duplicate, and accepts the last-wins form {\"a\":3}.",
+        "input": {"payload_text": '{"a":[1,2],"a":3}', "claimed_canonical": '{"a":3}'},
+    },
+    {
+        "id": "p35-canonical-bytes-string-value-equal-to-a-name",
+        "kind": "canonical_bytes",
+        "expect": "valid",
+        "description": "Accepting side of the duplicate-name rule: in {\"k\":\"v\",\"v\":1} the string value \"v\" equals the next name, and a value is not a name. Every object's names are unique, so the text is I-JSON and its canonical form compares. A scanner that reads a string value as a name finds a duplicate that is not there and rejects here.",
+        "input": {"payload_text": '{"k":"v","v":1}', "claimed_canonical": '{"k":"v","v":1}'},
+    },
+    {
+        "id": "n68-canonical-bytes-duplicate-name-in-nested-object",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "A duplicate name in an object nested inside an array inside an object: in {\"x\":[{\"a\":1,\"a\":2}]} the inner object repeats `a`. The names of every object must be unique, at any depth, so the text is not I-JSON and has no canonical form. A duplicate-name check that reads the outermost object only, or that opens no name scope for an object inside an array or inside another object, misses the duplicate and accepts the last-wins form {\"x\":[{\"a\":2}]}.",
+        "input": {"payload_text": '{"x":[{"a":1,"a":2}]}', "claimed_canonical": '{"x":[{"a":2}]}'},
     },
     # ----------------------------------- chain commitment (2-sided, v0.5.0, ADDITIVE kind)
     # A head digest binds the LAST record only: two prefixes ending in the same record — the
@@ -1400,11 +1873,50 @@ PROVENANCE = {
     "p21-independence-urn-identities": _SYN,
     "n30-independence-urn-self-attested": _SYN,
     "n31-independence-urn-alias-trailing-slash": _SYN,
+    "p31-independence-urn-case-and-trailing-punctuation-outside-party": _SYN,
+    "p32-independence-urn-percent-encoded-outside-party": _SYN,
+    "p33-independence-identifier-whitespace-set": _SYN,
+    "n45-independence-urn-alias-case": _SYN,
+    "n46-independence-urn-alias-trailing-dot": _SYN,
+    "n47-independence-urn-alias-trailing-hash": _SYN,
+    "n48-independence-urn-alias-percent-encoded": (TERSIGN, "contributed", "@stillmarcus24's probe in issue #8 (2026-09-29), his attestor verbatim on n31's parties, written here"),
+    "n49-independence-urn-alias-party-side-encoded-dot": _SYN,
+    "n50-independence-urn-percent-encoded-reserved": _SYN,
+    "n51-independence-urn-empty-after-normalization": _SYN,
+    "n52-independence-identifier-format-character-padding": _SYN,
+    "n53-independence-identifier-control-character-padding": _SYN,
+    "n58-independence-urn-alias-scheme-case": _SYN,
+    "p34-independence-urn-percent-encoded-unreserved-set-outside-party": _SYN,
+    "n54-independence-urn-alias-percent-encoded-unreserved-set": _SYN,
+    "n55-independence-urn-percent-encoded-percent-sign": _SYN,
+    "n56-independence-urn-triplet-assembled-by-decoding": _SYN,
+    "n59-independence-urn-alias-dot-segment": _SYN,
+    "n60-independence-urn-encoded-trailing-dot-segment": _SYN,
+    "n67-independence-urn-alias-leading-dot-segment": _SYN,
+    "n70-independence-urn-alias-leading-dot-dot-segment": _SYN,
+    "p36-independence-urn-dots-within-segments-outside-party": _SYN,
+    "n61-independence-urn-query-component": _SYN,
+    "n62-independence-urn-fragment-component": _SYN,
+    "n63-independence-address-alias-caip10-and-did-pkh": _SYN,
+    "n64-independence-address-alias-party-in-caip10": _SYN,
+    "p37-independence-address-caip10-outside-party": _SYN,
+    "n65-independence-address-alias-did-ethr": _SYN,
+    "n66-independence-address-alias-party-in-ethereum-namespace": _SYN,
+    "n69-independence-address-alias-any-scheme": _SYN,
+    "p38-independence-address-other-namespaces-outside-party": _SYN,
     "p15-offer-binding": _SYN,
     "n19-offer-substitution": _SYN,
     "n9-unrecognized-member-in-claim-set": _PR2,
     "p25-integer-token-in-text": _SYN,
     "n35-integer-valued-float-token": _SYN,
+    "p30-canonical-bytes-name-repeated-across-objects": _SYN,
+    "n41-canonical-bytes-duplicate-name": (TERSIGN, "contributed", "@Rul1an's reproduction in issue #10 (2026-09-29), his input verbatim, written here"),
+    "n42-canonical-bytes-escaped-duplicate-name": _SYN,
+    "n43-canonical-bytes-non-json-constant": _SYN,
+    "n44-canonical-bytes-text-not-a-string": _SYN,
+    "n57-canonical-bytes-duplicate-name-after-array": _SYN,
+    "p35-canonical-bytes-string-value-equal-to-a-name": _SYN,
+    "n68-canonical-bytes-duplicate-name-in-nested-object": _SYN,
     "p26-chain-commitment-complete": _SYN,
     "p27-live-chain-commitment-genesis-chain": (TERSIGN, "live-ledger", f"the ledger's genesis chain (13 counter-signed records) and its commitment anchored in Bitcoin block 964428, {_LIVE_ENDPOINTS}"),
     "n36-chain-commitment-prefix-substituted": _SYN,
@@ -1463,10 +1975,10 @@ if set(PROVENANCE) != set(_ids):
 
 manifest = {
     "suite": "evidence-record-conformance",
-    "version": "0.5.3",
+    "version": "0.5.4",
     "layer": "evidence-record",
     "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core — a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
-    "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) — the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected",
+    "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) — the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected, at load and inside `payload_text`, where names compare after decoding and only within one object (canonicalization_reject; p30/n41/n42); a `payload_text` that is not a string holding JSON text (a non-JSON constant such as NaN, text that does not parse) rejects the same way (n43/n44), and its shape is decided before its number tokens",
     "content_address": "keccak256(utf8(canonical(payload)))",
     "chain_link": "keccak256(artifact_digest || prev_digest || seq_uint64_be) — wire form of a genesis predecessor is null; 32 zero bytes is the hashing-time substitution for null",
     "chain_set": "records chain raw artifact digests via prev pointers (genesis prev = null); head.digest equals the final record's artifact digest; completeness = every seq 1..head.seq present exactly once (a second record at an occupied seq rejects: n39); where a record presents a link, it must recompute as keccak256(artifact || prev || seq_be8)",
@@ -1474,10 +1986,10 @@ manifest = {
     "anchor_relation": "anchored_digest = sha256(subject_digest_bytes)",
     "offer_binding": "receipt.offerDigest = keccak256(utf8(canonical(offer))); a receipt that commits to no offer digest cannot bind terms and fails closed",
     "decision_evidence_binding": "within this suite, record.decisionEvidenceDigest = keccak256(utf8(canonical(decision_evidence))); a record presented as authority-decision evidence must bind the exact object. This instantiates the general match/missing/mismatch binding property and does not prescribe a digest, canonicalization, or field location for AUEC, MCP, or another protocol; producer truth and decision semantics remain out of scope",
-    "identifier_normalization": "two identity syntaxes, both evaluated by every criterion that compares identity (pinned by one accepting vector each under the per-kind two-sided gate): 0x-addresses compare after strip + lowercase; scheme-qualified identifiers (lowercase alnum scheme, one colon, printable non-space ASCII path) compare after strip, case-significant; digests compare after strip + lowercase; identifiers that do not parse after normalization fail closed",
+    "identifier_normalization": "two identity syntaxes, both evaluated by every criterion that compares identity (pinned by one accepting vector each under the per-kind two-sided gate). Every identifier, whether in `parties` or an attestation's `by`, is normalized by one rule and compared only after it; the rule folds toward SAME PARTY, and an identifier it cannot decide does not parse. (1) Strip leading and trailing characters with the Unicode White_Space property, U+0009-U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000-U+200A, U+2028, U+2029, U+202F, U+205F and U+3000, and no others (n13/p33); a character without the property is not stripped, so an identifier padded with U+FEFF (a format character) or U+001C (a control character without the property) does not parse (n52/n53). (2) A 0x-address (0x and 40 hex digits, either case) compares lowercased, so an EIP-55 checksum variant is the same address. (3) Otherwise the identifier must be a scheme-qualified identifier in ASCII: a letter, then letters, digits, `+`, `.` or `-`, then one colon, then one or more printable non-space ASCII characters, letters in either case. Every percent-encoded triplet (either hex case) that encodes an unreserved character (A-Z a-z 0-9 `-` `.` `_` `~`) is decoded, in one left-to-right pass that is never repeated (RFC 3986 sections 6.2.2.2 and 2.4; n48/n49/n54/p32/p34); if any `%` remains, the identifier does not parse (n50/n55/n56). If it contains `?` (a query component), or its path, from the colon to the first `?` or `#`, has a segment that is exactly `.` or `..` (a dot-segment, RFC 3986 section 3.3), it does not parse (n59/n60/n61/n67/n70; neither class has an accepting twin, and p36, dots within segments, is the near-miss that accepts beside the dot-segments). The result is lowercased, the scheme included (n45/n58/p31), and every trailing `/`, `.` and `#` is removed (n31/n46/n47/p31); if a `#` remains (a fragment with content), it does not parse (n62; p31's trailing `#` alone is the near-miss that accepts); and it must still match the grammar with a lowercase scheme and a non-empty path (n51). (4) Anything else does not parse (n14). (5) Two identifiers name the same party when they are equal after normalization, or when both name the same 0x-address: a 0x-address names itself, and a scheme-qualified identifier whose final colon-separated component is a 0x-address (a CAIP-10 account such as eip155:8453:0x..., a did:pkh such as did:pkh:eip155:1:0x...) names that address, whatever the scheme (did:ethr:0x..., ethereum:0x..., acct:0x... as well), on either side and whatever the chain reference (n63/n64/p37 for CAIP-10 and did:pkh; n65/n66/n69/p38 for other schemes, acct: included). An identifier that does not parse after normalization fails the claim closed: it is never counted outside the parties. Not folded, and pinned by no vector: scheme-specific equivalences beyond these (RFC 3986 section 6.2.3, such as a default port) and names that resolve to an address (an ENS name, a did:web); two such identifiers compare as distinct. Digests compare after the same whitespace strip, lowercased",
     "witnessed_inclusion": "witness material (a cosigned checkpoint, inclusion proofs) presented beside a chain set is permitted and NOT load-bearing for completeness: it evidences existence and the log's consistency, never no-omission; a set with a gap rejects on the gap regardless of how many parties cosigned the log (p24/n34). Completeness requires a non-party attestation over the sequence itself, made at issuance",
     "duplicate_sequence": "a sequence attested only by its issuer evidences ordering, not that no other record carries the same `seq` and `correctionSeq`. Two records at one seq in a presented set reject on the duplicate, whatever the issuer attests (p28/n39; the issuer's `attestations` are permitted and not read). A record the issuer did not present is not in the bytes: the other record presented alone passes the structural chain_set predicate under the same head, and only a commitment over every link rejects it (p29/n40)",
-    "commitment_derivation": "an independence claim reaches exactly as far as the record's DERIVED commitments, never a declared list (n22-n24): `settlement` when settlement_result.success is true and transaction is a non-empty string; `network` when settlement_result.network is a non-empty string; `delivery` when keccak256(utf8(deliverable_bytes)) == deliverable_digest. A record presenting none of these fields has no evaluable commitments (a scoped claim rejects as unevaluable); a record presenting them and committing to none has an EMPTY commitment set (a scoped claim rejects as overreach). Who delivered is not read by the derivation — position is the independence axis, decided before scope is",
+    "commitment_derivation": "an independence claim reaches exactly as far as the record's DERIVED commitments, never a declared list (n22-n24): `settlement` when settlement_result.success is true and transaction is a string that is not empty after the whitespace strip of identifier_normalization; `network` when settlement_result.network is such a string; `delivery` when keccak256(utf8(deliverable_bytes)) == deliverable_digest. A record presenting none of these fields has no evaluable commitments (a scoped claim rejects as unevaluable); a record presenting them and committing to none has an EMPTY commitment set (a scoped claim rejects as overreach). Who delivered is not read by the derivation — position is the independence axis, decided before scope is",
     "field_naming": "harness-level input keys are snake_case (settlement_result, deliverable_bytes, decision_evidence, boundary_event); a key that quotes a protocol's own field keeps that protocol's wire spelling wherever it sits (payTo, resourceUrl, offerDigest, decisionEvidenceDigest). Contributed vectors follow the same two rules; the suite does not rename a protocol's fields to match its own, and does not camelCase its own",
     "vector_provenance": "every entry names `author`, the GitHub account that authored the commit adding the vector (git log --diff-filter=A -- vectors/<file>), and `origin` = {class, source}. origin.class is closed: synthetic (inputs constructed in tools/gen_vectors.py); live-ledger (a record from the live ledger, unaltered, with a provenance block in the vector); live-ledger-derived (a live-ledger value reused or altered); contributed (an outside contributor's PR, commit, fixture or published reproduction, named in origin.source, including vectors written here on such material). Generation fails if a vector has no entry, if its live-ledger class (or its lack of one) disagrees with the live-ledger values and provenance block in its own bytes, or if it carries a contributed fixture without crediting the contributor; authorship is not decided at generation: it is checkable against git history with the command above. Credit for reporting a failure class is recorded in CONTRIBUTORS.md. Metadata only: neither engine reads it",
     "vectors": [
@@ -1487,6 +1999,43 @@ manifest = {
         for v in vectors
     ],
 }
+
+# ------------------------------------------------------------ README provenance table
+# The README restates the per-class counts and the total in prose, where a reader checks them
+# against this manifest. They drifted once (a `synthetic` row of 78 beside 83 entries, a table
+# summing to 101 beside "Of the 106 vectors"), so generation fails unless the README has exactly
+# one row per origin class, each row's count (and its listed ids, where the row lists them)
+# equals the manifest's, and the one stated total equals the number of vectors. Checked before
+# any file is written; a table this gate cannot find fails it too.
+def _readme_fail(msg):
+    sys.exit(f"README: {msg}")
+
+
+def check_readme_provenance(text, entries):
+    want = {c: [] for c in ORIGIN_CLASSES}
+    for e in entries:
+        want[e["origin"]["class"]].append(e["file"].split("-", 1)[0])
+    row_re = re.compile(r"^\| `(" + "|".join(re.escape(c) for c in ORIGIN_CLASSES)
+                        + r")` \| (\d+)(?: \(([^)]*)\))? \|", re.M)
+    rows = {}
+    for m in row_re.finditer(text):
+        if m.group(1) in rows:
+            _readme_fail(f"provenance table has two `{m.group(1)}` rows")
+        rows[m.group(1)] = (int(m.group(2)), m.group(3))
+    if set(rows) != set(ORIGIN_CLASSES):
+        _readme_fail(f"provenance table rows {sorted(rows)} != origin classes {sorted(ORIGIN_CLASSES)}")
+    for cls, (n, ids) in rows.items():
+        if n != len(want[cls]):
+            _readme_fail(f"`{cls}` row says {n}, the manifest has {len(want[cls])}")
+        if ids is not None and sorted(i.strip() for i in ids.split(",")) != sorted(want[cls]):
+            _readme_fail(f"`{cls}` row lists {ids}, the manifest has {', '.join(want[cls])}")
+    totals = re.findall(r"Of the (\d+) vectors", text)
+    if totals != [str(len(entries))]:
+        _readme_fail(f"stated total(s) {totals} != [{len(entries)}] vectors")
+
+
+with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as f:
+    check_readme_provenance(f.read(), manifest["vectors"])
 
 for v in vectors:
     with open(os.path.join(V, f"{v['id']}.json"), "w") as f:
