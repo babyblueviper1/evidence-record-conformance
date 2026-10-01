@@ -9,7 +9,8 @@ Check, per vector, in this order:
     identifier_normalization does -- strip leading/trailing Unicode White_Space characters (exactly the core's set) and lowercase --
     then must be exactly 0x + 64 hex (digests) / 0x + 40 hex (signer); seq is an integer token in [1, 2**53 - 1] (not bool/str/float);
     an absent prev_digest (key omitted or null) means genesis, 32 zero bytes;
- 3. link_version: absent means 1; any other value than the integer 1 rejects as unsupported_link_version;
+ 3. link_version: an omitted key means 1; any other value than the integer 1 -- including a present null, true, 1.0 or "1" --
+    rejects as unsupported_link_version;
  4. link = keccak256(artifact_digest || prev_digest or 32 zero bytes || uint64_be(seq))  [the core chain_link, link_version 1];
  5. countersignature is matched whole, unnormalized: exactly "0x" + 130 hex digits (no whitespace, no "0X"), v in {27, 28},
     else malformed_signature;
@@ -51,6 +52,9 @@ def check(inp, mut=None):
         return "reject", "malformed_input"
     if mut == "no_whitespace_strip":
         nh = lambda x, n: x.lower() if isinstance(x, str) and _HEX_RE[n].match(x.lower()) else None
+    elif mut in ("python_str_strip", "ascii_only_strip"):   # str.strip() also removes U+001C-U+001F; ASCII-only misses U+0085/U+3000
+        chars = None if mut == "python_str_strip" else " \t\n\r\x0b\x0c"
+        nh = lambda x, n: (lambda y: y if _HEX_RE[n].match(y) else None)(x.strip(chars).lower()) if isinstance(x, str) else None
     else:
         nh = norm_hex
     art = nh(inp["artifact_digest"], 32)
@@ -60,20 +64,36 @@ def check(inp, mut=None):
     seq = inp["seq"]
     lo = 0 if mut == "seq_zero_allowed" else 1
     seq_ok = isinstance(seq, int) and not isinstance(seq, bool) and lo <= seq <= SEQ_MAX
+    if mut == "seq_integral_float" and isinstance(seq, float) and seq.is_integer():
+        seq = int(seq); seq_ok = lo <= seq <= SEQ_MAX
     if mut == "no_seq_type_check":
         try:
             seq = int(seq); seq_ok = lo <= seq <= SEQ_MAX
         except (TypeError, ValueError):
             seq_ok = False
+    if mut == "signature_checked_first" and not (isinstance(inp["countersignature"], str) and _SIG_RE.match(inp["countersignature"])):
+        return "reject", "malformed_signature"
     if art is None or (prev is not None and prevn is None) or signer is None or not seq_ok:
         return "reject", "malformed_input"
     lv = inp.get("link_version", LINK_VERSION)
-    if mut != "link_version_ignored" and not (isinstance(lv, int) and not isinstance(lv, bool) and lv == LINK_VERSION):
+    if mut == "link_version_null_absent" and lv is None:
+        lv = LINK_VERSION
+    if mut in ("link_version_true_as_1", "link_version_float_as_1"):
+        lv_ok = lv == LINK_VERSION and (isinstance(lv, bool) if mut == "link_version_true_as_1" else isinstance(lv, (int, float)))
+        lv_ok = lv_ok or (isinstance(lv, int) and not isinstance(lv, bool) and lv == LINK_VERSION)
+    elif mut == "link_version_at_least_1":
+        lv_ok = isinstance(lv, int) and not isinstance(lv, bool) and lv >= LINK_VERSION
+    elif mut == "link_version_at_most_1":
+        lv_ok = isinstance(lv, int) and not isinstance(lv, bool) and lv <= LINK_VERSION
+    else:
+        lv_ok = isinstance(lv, int) and not isinstance(lv, bool) and lv == LINK_VERSION
+    if mut != "link_version_ignored" and not lv_ok:
         return "reject", "unsupported_link_version"
     sig_field = inp["countersignature"]
     if mut == "lenient_signature_parsing" and isinstance(sig_field, str):
         sig_field = "0x" + "".join(sig_field.split()).lower().removeprefix("0x")
-    if not (isinstance(sig_field, str) and _SIG_RE.match(sig_field)):
+    sig_re = re.compile(r"\A0x[0-9a-f]{130}\Z") if mut == "signature_lowercase_only" else _SIG_RE
+    if not (isinstance(sig_field, str) and sig_re.match(sig_field)):
         return "reject", "malformed_signature"
     sig = bytes.fromhex(sig_field[2:])
     v = sig[64]
@@ -110,6 +130,16 @@ MUTANTS = {   # each is a plausible broken verifier; the suite must fail it on t
     "lenient_signature_parsing": "cn14-signature-missing-0x-prefix",
     "link_version_ignored": "cn27-unsupported-link-version",
     "no_whitespace_strip": "cp5-digest-trailing-newline-normalized",
+    "python_str_strip": "cn33-digest-u001c-padded",
+    "ascii_only_strip": "cp10-whitespace-padding-nel-and-ideographic-space",
+    "seq_integral_float": "cn29-seq-integral-float",
+    "link_version_true_as_1": "cn31-link-version-true",
+    "link_version_float_as_1": "cn30-link-version-float",
+    "link_version_null_absent": "cn32-link-version-null",
+    "link_version_at_least_1": "cn27-unsupported-link-version",
+    "link_version_at_most_1": "cn35-link-version-zero",
+    "signature_lowercase_only": "cp11-signature-uppercase-hex-digits",
+    "signature_checked_first": "cn34-malformed-field-and-malformed-signature",
 }
 MANIFEST = os.path.join(HERE, "MANIFEST.json")
 
@@ -122,15 +152,20 @@ def load_set():
     on_disk = {os.path.basename(f) for f in glob.glob(os.path.join(HERE, "vectors", "*.json"))}
     problems += [f"on disk, not in MANIFEST: {f}" for f in sorted(on_disk - listed)]
     problems += [f"in MANIFEST, not on disk: {f}" for f in sorted(listed - on_disk)]
+    files = [e["file"] for e in m["vectors"]]
+    problems += [f"listed more than once in MANIFEST: {f}" for f in sorted({f for f in files if files.count(f) > 1})]
     for e in m["vectors"]:
         if e["file"] not in on_disk:
             continue
         v = json.load(open(os.path.join(HERE, "vectors", e["file"])))
+        stem = e["file"][:-len(".json")]
+        if v.get("id") != stem:   # keyed on the MANIFEST file; the id must name it, so a copied id cannot shadow another vector
+            problems.append(f"{e['file']}: id {v.get('id')!r} != file stem {stem!r}")
         if (v["expect"], v["kind"]) != (e["expect"], e["kind"]):
             problems.append(f"{e['file']}: MANIFEST expect/kind disagrees with the vector")
         if e.get("origin", {}).get("class") not in ORIGIN_CLASSES:
             problems.append(f"{e['file']}: origin.class not in {ORIGIN_CLASSES}")
-        vecs[v["id"]] = v
+        vecs[stem] = v
     if not vecs:
         problems.append("empty vector set")
     kinds = {}
@@ -143,6 +178,8 @@ def load_set():
     problems += [f"reject reason never exercised: {r}" for r in REJECT_REASONS if r not in exercised]
     problems += [f"vector uses an undeclared reason: {r}" for r in sorted(exercised - set(REJECT_REASONS))]
     problems += [f"mutant {n} names a missing vector {vid}" for n, vid in MUTANTS.items() if vid not in vecs]
+    if len(vecs) != len(m["vectors"]):
+        problems.append(f"loaded {len(vecs)} vectors for {len(m['vectors'])} MANIFEST entries")
     return vecs, problems
 
 
@@ -172,12 +209,17 @@ def main():
     bad = len(problems)
     for p in problems:
         print("SET  ", p)
+    ran = 0
     for vid in sorted(vecs, key=lambda i: (i[:2], int("".join(c for c in i.split("-")[0] if c.isdigit()) or 0))):
-        v = vecs[vid]; got, why = check(v["input"])
+        v = vecs[vid]; got, why = check(v["input"]); ran += 1
         ok = got == v["expect"] and (why == v.get("reject_reason"))
         bad += not ok
-        print(f"{'ok  ' if ok else 'FAIL'} {v['id']:48s} expect={v['expect']:6s} got={got}{' ('+why+')' if why else ''}")
-    print(f"{len(vecs) - (bad - len(problems))}/{len(vecs)} crypto-profile vectors match" + ("" if not problems else f"; {len(problems)} set problem(s)"))
+        print(f"{'ok  ' if ok else 'FAIL'} {vid:48s} expect={v['expect']:6s} got={got}{' ('+why+')' if why else ''}")
+    n_manifest = len(json.load(open(MANIFEST))["vectors"])
+    if ran != n_manifest:
+        bad += 1; problems.append(f"ran {ran} vectors for {n_manifest} MANIFEST entries")
+        print("SET  ", problems[-1])
+    print(f"{ran - (bad - len(problems))}/{n_manifest} crypto-profile vectors match" + ("" if not problems else f"; {len(problems)} set problem(s)"))
     return 1 if bad else 0
 
 

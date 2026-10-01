@@ -3,7 +3,7 @@
   "kind": "countersignature",
   "expect": "reject",
   "reject_reason": "malformed_signature",
-  "description": "countersignature is cp1's genuine value with the prefix written 0X. The signature is matched whole and unnormalized (exactly 0x + 130 hex): malformed_signature. Tersign's own verifiers refuse it.",
+  "description": "countersignature is cp1's genuine value with the prefix written 0X. The signature is matched whole and unnormalized (exactly 0x + 130 hex): malformed_signature.",
   "input": {
     "artifact_digest": "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4",
     "prev_digest": null,

@@ -1,0 +1,13 @@
+{
+  "id": "cp11-signature-uppercase-hex-digits",
+  "kind": "countersignature",
+  "expect": "valid",
+  "description": "cp1's countersignature with upper-case hex digits after a lower-case 0x. The field domain allows either case for the 130 digits (only the prefix is fixed), and the bytes are cp1's: valid. Kills a lower-case-only signature check.",
+  "input": {
+    "artifact_digest": "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4",
+    "prev_digest": null,
+    "seq": 1,
+    "countersignature": "0xFCCC1ADD7301C688E03311FF04B9AECAC4F0D81A468FC95128B24AA0C8AFF2BF3B148181BEFFFC6DBE739B1991D936CD434A2FA2BCB8EA1F49A06B8F7A3FFF1D1C",
+    "ledger_signer": "0x9d38BA84730271eb27Ac9bD4Bd2620c08dB4FDa6"
+  }
+}

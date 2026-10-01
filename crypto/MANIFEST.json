@@ -39,8 +39,8 @@
    "expect": "valid",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
-    "source": "inputs constructed in crypto/gen_crypto_vectors.py with the published test key"
+    "class": "live-ledger-derived",
+    "source": "cp1's artifact_digest (live), signed here with the published test key"
    }
   },
   {
@@ -69,7 +69,7 @@
    "expect": "valid",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
    }
   },
@@ -79,7 +79,7 @@
    "expect": "valid",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
    }
   },
@@ -89,7 +89,7 @@
    "expect": "valid",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
    }
   },
@@ -109,8 +109,8 @@
    "expect": "valid",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
-    "source": "inputs constructed in crypto/gen_crypto_vectors.py with the published test key"
+    "class": "live-ledger-derived",
+    "source": "cp1's artifact_digest (live), signed here with the published test key"
    }
   },
   {
@@ -129,8 +129,8 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
-    "source": "inputs constructed in crypto/gen_crypto_vectors.py with the published test key"
+    "class": "live-ledger-derived",
+    "source": "cp1's artifact_digest (live), signed here with the published test key"
    }
   },
   {
@@ -149,8 +149,8 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
-    "source": "inputs constructed in crypto/gen_crypto_vectors.py with the published test key"
+    "class": "live-ledger-derived",
+    "source": "cp1's artifact_digest (live), signed here with the published test key"
    }
   },
   {
@@ -179,7 +179,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
@@ -189,7 +189,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
@@ -199,7 +199,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
@@ -209,7 +209,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
@@ -219,7 +219,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
@@ -229,7 +229,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
@@ -239,7 +239,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
@@ -249,7 +249,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
@@ -259,7 +259,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
    }
   },
@@ -269,7 +269,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
    }
   },
@@ -289,7 +289,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "contributed",
+    "class": "live-ledger-derived",
     "source": "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
    }
   },
@@ -380,7 +380,7 @@
    "author": "@babyblueviper1",
    "origin": {
     "class": "live-ledger-derived",
-    "source": "cp1 with link_version 2"
+    "source": "cp1 with link_version 1000"
    }
   },
   {
@@ -391,6 +391,96 @@
    "origin": {
     "class": "live-ledger-derived",
     "source": "cp1 with link_version \"1\""
+   }
+  },
+  {
+   "file": "cp10-whitespace-padding-nel-and-ideographic-space.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with U+0085 after the digest and U+3000 before the signer"
+   }
+  },
+  {
+   "file": "cp11-signature-uppercase-hex-digits.json",
+   "kind": "countersignature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's signature with upper-case hex digits, 0x kept"
+   }
+  },
+  {
+   "file": "cn29-seq-integral-float.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with seq written 1.0"
+   }
+  },
+  {
+   "file": "cn30-link-version-float.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with link_version 1.0"
+   }
+  },
+  {
+   "file": "cn31-link-version-true.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with link_version true"
+   }
+  },
+  {
+   "file": "cn32-link-version-null.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with link_version null"
+   }
+  },
+  {
+   "file": "cn33-digest-u001c-padded.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1's digest followed by U+001C"
+   }
+  },
+  {
+   "file": "cn34-malformed-field-and-malformed-signature.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cn7's digest and cn14's signature in one input"
+   }
+  },
+  {
+   "file": "cn35-link-version-zero.json",
+   "kind": "countersignature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "cp1 with link_version 0"
    }
   }
  ]

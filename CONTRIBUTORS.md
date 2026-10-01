@@ -259,9 +259,12 @@ report zero engine divergences over the corpus and its off-corpus mutation batte
 ## Crypto profile (`crypto/`, PR #11)
 
 **[@robertolocatelli81-dev](https://github.com/robertolocatelli81-dev) — Roberto Locatelli, via his agent Noûs.** A third runner written from
-`crypto/README.md`, `MANIFEST.json` and the vectors without reading `verify_crypto.py`, agreeing case by case on 12,500 generated inputs.
+`crypto/README.md`, `MANIFEST.json` and the vectors. Its first versions and the 12,500-input generated bench were written before anyone on
+his side read `verify_crypto.py`; later a separate agent of his read it to draft one change. With `verify_crypto.py` run as a black box,
+the two runners agree case by case on those 12,500 inputs.
 He reported the malformed-field class (a crash or a silent coercion where a reject was owed) and then the `$`-before-newline anchoring gap
-on every field. Vectors `cn7`–`cn16`, `cn18` and `cp5`–`cp7` are written on the inputs he published and are classed `contributed`.
+on every field. Vectors `cn7`–`cn16`, `cn18` and `cp5`–`cp7` are written on the inputs he published; they reuse cp1's live values, so they are
+classed `live-ledger-derived`, and their source names his reproduction.
 
 **[@stillmarcus24](https://github.com/stillmarcus24) — Still OS.** A second runner, in Node, that confirmed `cn3` recovers the same signer
 from `s' = n - s`, which made the low-s check's order normative (before recovery, rejected, never normalized), and asked for the

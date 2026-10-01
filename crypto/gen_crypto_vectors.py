@@ -64,24 +64,24 @@ def main():
     no_prev = {k: v for k, v in base.items() if k != "prev_digest"}
     ME = "@babyblueviper1"
     LD = lambda what: (ME, "live-ledger-derived", what)
-    SYN = (ME, "synthetic", "inputs constructed in crypto/gen_crypto_vectors.py with the published test key")
     R1 = "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5905183087; written here on cp1's values"
     R2 = "@robertolocatelli81-dev's published reproduction (Noûs), PR #11 issuecomment-5907121036; written here on cp1's values"
-    C1 = (ME, "contributed", R1); C2 = (ME, "contributed", R2)
+    C1 = (ME, "live-ledger-derived", R1); C2 = (ME, "live-ledger-derived", R2)   # cp1's live values, written on Nous's published inputs
+    TK = (ME, "live-ledger-derived", "cp1's artifact_digest (live), signed here with the published test key")
     V = [  # id, expect, reason, input, (author, class, source)
         ("cp1-live-genesis-link-countersignature", "valid", None, base, (ME, "live-ledger", "the ledger's counter-signature over the genesis link, unaltered; the vector's provenance block names the public endpoints")),
-        ("cp2-test-key-accepting-twin", "valid", None, {**base, "countersignature": t_sig, "ledger_signer": TEST_ADDR}, SYN),
+        ("cp2-test-key-accepting-twin", "valid", None, {**base, "countersignature": t_sig, "ledger_signer": TEST_ADDR}, TK),
         ("cp3-prev-digest-absent-key-equals-null", "valid", None, no_prev, LD("cp1 with the prev_digest key omitted")),
         ("cp4-live-seq2-link-countersignature", "valid", None, s2, (ME, "live-ledger", "the ledger's counter-signature over the seq-2 link, unaltered; the vector's provenance block names the public endpoint")),
         ("cp5-digest-trailing-newline-normalized", "valid", None, {**base, "artifact_digest": G_ART + "\n"}, C2),
         ("cp6-ledger-signer-trailing-newline-normalized", "valid", None, {**base, "ledger_signer": SIGNER + "\n"}, C2),
         ("cp7-digest-uppercase-0X-normalized", "valid", None, {**base, "artifact_digest": "0X" + G_ART[2:].upper()}, C2),
         ("cp8-explicit-link-version-1", "valid", None, {**base, "link_version": 1}, LD("cp1 with link_version 1 carried explicitly")),
-        ("cp9-seq-max-test-key", "valid", None, {**base, "seq": SEQ_MAX, "countersignature": max_sig, "ledger_signer": TEST_ADDR}, SYN),
+        ("cp9-seq-max-test-key", "valid", None, {**base, "seq": SEQ_MAX, "countersignature": max_sig, "ledger_signer": TEST_ADDR}, TK),
         ("cn1-signature-moved-to-another-seq", "reject", "signer_mismatch", {**base, "seq": 2}, LD("cp1's signature moved to seq 2")),
-        ("cn2-foreign-signer-claims-ledger", "reject", "signer_mismatch", {**base, "countersignature": t_sig}, SYN),
+        ("cn2-foreign-signer-claims-ledger", "reject", "signer_mismatch", {**base, "countersignature": t_sig}, TK),
         ("cn3-high-s-malleated-live-signature", "reject", "non_canonical_s", {**base, "countersignature": with_sig(G_SIG, s=S.N - gs, v=55 - int(G_SIG[130:], 16))}, LD("cp1's signature malleated to s' = n - s, v flipped")),
-        ("cn4-raw-digest-signature-no-eip191-prefix", "reject", "signer_mismatch", {**base, "countersignature": raw_sig, "ledger_signer": TEST_ADDR}, SYN),
+        ("cn4-raw-digest-signature-no-eip191-prefix", "reject", "signer_mismatch", {**base, "countersignature": raw_sig, "ledger_signer": TEST_ADDR}, TK),
         ("cn5-truncated-64-byte-signature", "reject", "malformed_signature", {**base, "countersignature": G_SIG[:130]}, LD("cp1's signature with the recovery byte dropped")),
         ("cn6-recovery-byte-out-of-range", "reject", "malformed_signature", {**base, "countersignature": with_sig(G_SIG, v=29)}, LD("cp1's signature with v = 29")),
         ("cn7-non-hex-artifact-digest", "reject", "malformed_input", {**base, "artifact_digest": "0xnot-hex-at-all"}, C1),
@@ -104,8 +104,17 @@ def main():
         ("cn24-low-s-boundary-plus-one", "reject", "non_canonical_s", {**base, "countersignature": with_sig(G_SIG, s=S.N // 2 + 1)}, LD("cp1's r with s = floor(n/2) + 1")),
         ("cn25-seq-zero", "reject", "malformed_input", {**base, "seq": 0}, LD("cp1 with seq 0")),
         ("cn26-seq-above-2-53", "reject", "malformed_input", {**base, "seq": SEQ_MAX + 1}, LD("cp1 with seq 2**53")),
-        ("cn27-unsupported-link-version", "reject", "unsupported_link_version", {**base, "link_version": 2}, LD("cp1 with link_version 2")),
+        ("cn27-unsupported-link-version", "reject", "unsupported_link_version", {**base, "link_version": 1000}, LD("cp1 with link_version 1000")),
         ("cn28-link-version-string", "reject", "unsupported_link_version", {**base, "link_version": "1"}, LD('cp1 with link_version "1"')),
+        ("cp10-whitespace-padding-nel-and-ideographic-space", "valid", None, {**base, "artifact_digest": G_ART + "\u0085", "ledger_signer": "\u3000" + SIGNER}, LD("cp1 with U+0085 after the digest and U+3000 before the signer")),
+        ("cp11-signature-uppercase-hex-digits", "valid", None, {**base, "countersignature": "0x" + G_SIG[2:].upper()}, LD("cp1's signature with upper-case hex digits, 0x kept")),
+        ("cn29-seq-integral-float", "reject", "malformed_input", {**base, "seq": 1.0}, LD("cp1 with seq written 1.0")),
+        ("cn30-link-version-float", "reject", "unsupported_link_version", {**base, "link_version": 1.0}, LD("cp1 with link_version 1.0")),
+        ("cn31-link-version-true", "reject", "unsupported_link_version", {**base, "link_version": True}, LD("cp1 with link_version true")),
+        ("cn32-link-version-null", "reject", "unsupported_link_version", {**base, "link_version": None}, LD("cp1 with link_version null")),
+        ("cn33-digest-u001c-padded", "reject", "malformed_input", {**base, "artifact_digest": G_ART + "\u001c"}, LD("cp1's digest followed by U+001C")),
+        ("cn34-malformed-field-and-malformed-signature", "reject", "malformed_input", {**base, "artifact_digest": "0xnot-hex-at-all", "countersignature": G_SIG[2:]}, LD("cn7's digest and cn14's signature in one input")),
+        ("cn35-link-version-zero", "reject", "unsupported_link_version", {**base, "link_version": 0}, LD("cp1 with link_version 0")),
     ]
     os.makedirs(os.path.join(HERE, "vectors"), exist_ok=True)
     for f in os.listdir(os.path.join(HERE, "vectors")):
@@ -169,12 +178,12 @@ DESC = {
  "cn6-recovery-byte-out-of-range": "The live signature with v = 29. personal_sign signatures carry v in {27, 28}; any other value is malformed, not silently normalized.",
  "cp4-live-seq2-link-countersignature": "Live, non-genesis: the ledger's counter-signature over the seq-2 chain link (artifact 0x89db...4f1c, predecessor the genesis digest). Recovery over the link with a real predecessor and seq > 1 returns the pinned ledger_signer. Provenance block names the public endpoint.",
  "cp5-digest-trailing-newline-normalized": "cp1 with a trailing newline on artifact_digest. Digests are normalized as the core's identifier_normalization does (strip the Unicode White_Space set, then lowercase) before the shape check, so this is cp1's link and it is valid. Accepting twin of cn17: an engine that defends the whitespace class by refusing padded digests fails here.",
- "cp6-ledger-signer-trailing-newline-normalized": "cp1 with a trailing newline on ledger_signer: normalized to the same address, valid. Pins strip-then-shape for the signer (Tersign's merge item 3, @robertolocatelli81-dev's reading).",
+ "cp6-ledger-signer-trailing-newline-normalized": "cp1 with a trailing newline on ledger_signer: normalized to the same address, valid. Pins strip-then-shape for the signer.",
  "cp7-digest-uppercase-0X-normalized": "cp1 with artifact_digest written 0X + upper-case hex. Lowercasing is part of normalization for digests and the signer, so this is cp1's link and it is valid. The countersignature is NOT normalized: cn18 pins 0X there as malformed.",
  "cp8-explicit-link-version-1": "cp1 with link_version: 1 carried explicitly. Absent and 1 are the same recipe (MANIFEST link_version); this is valid. Accepting twin of cn27/cn28.",
  "cp9-seq-max-test-key": "The top of the seq domain: seq = 2**53 - 1 (the largest integer every JSON engine carries exactly), signed by the published test key over that link. Valid. Boundary twin of cn26.",
  "cn17-digest-bom-padded": "artifact_digest is cp1's digest followed by U+FEFF. U+FEFF is a format character without the White_Space property, so normalization does not strip it (the core's n52 rule) and the digest does not parse: malformed_input.",
- "cn18-signature-uppercase-0X-prefix": "countersignature is cp1's genuine value with the prefix written 0X. The signature is matched whole and unnormalized (exactly 0x + 130 hex): malformed_signature. Tersign's own verifiers refuse it.",
+ "cn18-signature-uppercase-0X-prefix": "countersignature is cp1's genuine value with the prefix written 0X. The signature is matched whole and unnormalized (exactly 0x + 130 hex): malformed_signature.",
  "cn19-moved-predecessor-live-seq2": "cp4's genuine seq-2 signature presented over a link whose prev_digest is another real ledger digest (that record's anchor subjectDigest) instead of the genesis digest. The link commits to its predecessor, so recovery returns a different address: signer_mismatch.",
  "cn20-unrecoverable-r-off-curve": "A well-formed, low-s signature whose r is not the x-coordinate of any curve point. Recovery defines no public key: unrecoverable. A verifier that skips the curve check derives a garbage point instead of refusing.",
  "cn21-recovery-byte-zero": "cp1's signature with v = 0 (the raw recovery id, as some libraries emit it). The profile's v is 27 or 28 only, never normalized: malformed_signature.",
@@ -183,8 +192,17 @@ DESC = {
  "cn24-low-s-boundary-plus-one": "cp1's r with s = floor(n/2) + 1, the smallest non-canonical s: non_canonical_s, before any recovery. Twin of cn23 across the boundary.",
  "cn25-seq-zero": "cp1 with seq = 0. The core's sequence starts at 1, so 0 is outside the domain [1, 2**53 - 1]: malformed_input.",
  "cn26-seq-above-2-53": "seq = 2**53, one past the domain: malformed_input. Above 2**53 a JSON double can no longer tell adjacent integers apart, so two engines would disagree on which link was signed.",
- "cn27-unsupported-link-version": "cp1 with link_version: 2. Only recipe 1 exists; any other value rejects on its own reason, unsupported_link_version, rather than being read as 1.",
- "cn28-link-version-string": "cp1 with link_version: \"1\". The version is an integer token; the string is not 1: unsupported_link_version."
+ "cn27-unsupported-link-version": "cp1 with link_version: 1000. Only recipe 1 exists; any other value rejects on its own reason, unsupported_link_version, rather than being read as 1. Twin of cn35 across 1 (kills an accept-if->=1 check).",
+ "cn28-link-version-string": "cp1 with link_version: \"1\". The version is an integer token; the string is not 1: unsupported_link_version.",
+ "cp10-whitespace-padding-nel-and-ideographic-space": "cp1 with U+0085 (NEXT LINE) after artifact_digest and U+3000 (IDEOGRAPHIC SPACE) before ledger_signer. Both have the White_Space property, so normalization strips them and this is cp1: valid. Kills an ASCII-only strip.",
+ "cp11-signature-uppercase-hex-digits": "cp1's countersignature with upper-case hex digits after a lower-case 0x. The field domain allows either case for the 130 digits (only the prefix is fixed), and the bytes are cp1's: valid. Kills a lower-case-only signature check.",
+ "cn29-seq-integral-float": "seq written 1.0. The domain is an integer token; an integral float is not one, even where it equals 1: malformed_input. Engines that cannot tell 1.0 from 1 after parsing must check the token.",
+ "cn30-link-version-float": "cp1 with link_version: 1.0. Not the integer 1: unsupported_link_version.",
+ "cn31-link-version-true": "cp1 with link_version: true. A boolean is not the integer 1 (true == 1 in several languages): unsupported_link_version.",
+ "cn32-link-version-null": "cp1 with link_version: null. A present null is a value, not absence; only an omitted key means 1: unsupported_link_version.",
+ "cn33-digest-u001c-padded": "cp1's digest followed by U+001C. U+001C has no White_Space property (Python's str.strip() removes it anyway), so normalization does not strip it and the digest does not parse: malformed_input. Kills a str.strip() verifier.",
+ "cn34-malformed-field-and-malformed-signature": "A malformed artifact_digest (cn7) and a countersignature without 0x (cn14) in one input. Field shape is checked before the signature (normative order), so the reason is malformed_input. cn14 alone passes under either order.",
+ "cn35-link-version-zero": "cp1 with link_version: 0. Twin of cn27 below 1: unsupported_link_version (kills an accept-if-<=1 check)."
 }
 
 if __name__ == "__main__":

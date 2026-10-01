@@ -1,5 +1,5 @@
-"""Pure-stdlib secp256k1 public-key recovery for Ethereum personal_sign (EIP-191 version 0x45). Verification only;
-no secret is held. Uses the suite's own keccak.py. Low-s (EIP-2) is enforced by the caller, not here."""
+"""Pure-stdlib secp256k1 public-key recovery for Ethereum personal_sign (EIP-191 version 0x45), plus a fixed-nonce sign()
+used only by gen_crypto_vectors.py with the published test key; the runner itself only recovers, and no real secret is held. Uses the suite's own keccak.py. Low-s (EIP-2) is enforced by the caller, not here."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from keccak import keccak256  # noqa: E402
