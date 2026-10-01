@@ -96,5 +96,5 @@ The test key and the fixed nonce are published in `MANIFEST.json` (`test_key_add
 
 ## Not yet covered
 
-- EIP-712 typed-data counter-signatures. p1's *payload* signature is EIP-712; this profile covers only the ledger's `personal_sign` over links. Tersign published the construction on PR #11 (domain `{name: "x402 receipt", version: "1", chainId: 1}`, `Receipt(uint256 version,string network,string resourceUrl,string payer,uint256 issuedAt,string transaction)`, expected signer `0x36f8…8b14`). It is not covered here.
+- ~~EIP-712 typed-data payload signatures~~ covered by `crypto/EIP712_MANIFEST.json` + `crypto/eip712_vectors/` (17 vectors: 2 accepting, 15 rejecting; runner `verify_eip712.py`, generator `gen_eip712_vectors.py`, stdlib only). Pinned domain `{name: "x402 receipt", version: "1", chainId: 1}`, `Receipt(uint256 version,string network,string resourceUrl,string payer,uint256 issuedAt,string transaction)`; ep1 is p1's live payload signature, recovering `0x36f8…8b14`. These vectors were committed publicly before release (see the PR that added them).
 - Signer-set rotation: which key was authoritative at which seq.

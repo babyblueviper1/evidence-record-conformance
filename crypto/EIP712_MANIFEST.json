@@ -1,0 +1,195 @@
+{
+ "profile": "EIP-712 payload signature (x402 offer-and-receipt Receipt)",
+ "runner": "crypto/verify_eip712.py",
+ "generator": "crypto/gen_eip712_vectors.py",
+ "domain": {
+  "name": "x402 receipt",
+  "version": "1",
+  "chainId": 1
+ },
+ "primary_type": "Receipt",
+ "type": "Receipt(uint256 version,string network,string resourceUrl,string payer,uint256 issuedAt,string transaction)",
+ "reject_reasons": [
+  "unsupported_format",
+  "malformed_input",
+  "malformed_signature",
+  "non_canonical_s",
+  "unrecoverable",
+  "signer_mismatch"
+ ],
+ "test_key_address": "0xc6c2919698cd8f3c63e731f9231871f75138e60b",
+ "test_key_derivation": "keccak256(\"evidence-record-conformance crypto-profile test key v1\") mod n",
+ "test_nonce_derivation": "keccak256(\"fixed nonce, test vectors only\") mod n",
+ "vectors": [
+  {
+   "file": "ep1-live-p1-payload-signature.json",
+   "kind": "payload_signature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1's payload, signature and payer as served (core vector p1, live-ledger); Tersign published the typed-data construction on PR #11"
+   }
+  },
+  {
+   "file": "ep2-test-key-accepting-twin.json",
+   "kind": "payload_signature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "synthetic",
+    "source": "test key signs a Receipt naming itself as payer"
+   }
+  },
+  {
+   "file": "en1-domain-chainid-8453.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "synthetic",
+    "source": "test key signs under chainId 8453 (Base), the record's own network, not the pinned domain"
+   }
+  },
+  {
+   "file": "en2-domain-name-altered.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "synthetic",
+    "source": "test key signs under a domain name one letter off"
+   }
+  },
+  {
+   "file": "en3-type-fields-reordered.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "synthetic",
+    "source": "test key signs with issuedAt and transaction swapped in the type string"
+   }
+  },
+  {
+   "file": "en4-issuedat-drift.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with issuedAt + 1"
+   }
+  },
+  {
+   "file": "en5-payer-recased.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with payer written lower-case: payer is a string, hashed as written"
+   }
+  },
+  {
+   "file": "en6-high-s-malleated.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1's signature malleated to s' = n - s, v flipped"
+   }
+  },
+  {
+   "file": "en7-personal-sign-over-struct.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "synthetic",
+    "source": "test key personal_signs the EIP-712 digest instead of signing it"
+   }
+  },
+  {
+   "file": "en8-version-string.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with version as the string \"1\""
+   }
+  },
+  {
+   "file": "en9-issuedat-negative.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with issuedAt -1"
+   }
+  },
+  {
+   "file": "en10-field-missing.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with transaction removed"
+   }
+  },
+  {
+   "file": "en11-extra-field.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with a field the Receipt type does not have"
+   }
+  },
+  {
+   "file": "en12-format-not-eip712.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 labelled eip191"
+   }
+  },
+  {
+   "file": "en13-ledger-key-is-not-payload-signer.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with the ledger's counter-signing key declared as the payload signer"
+   }
+  },
+  {
+   "file": "en14-recovery-byte-29.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1's signature with v = 29"
+   }
+  },
+  {
+   "file": "en15-unrecoverable-r-off-curve.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1's s and v with r off the curve"
+   }
+  }
+ ]
+}
