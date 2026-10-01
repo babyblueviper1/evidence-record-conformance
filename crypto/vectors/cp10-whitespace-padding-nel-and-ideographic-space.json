@@ -1,0 +1,13 @@
+{
+  "id": "cp10-whitespace-padding-nel-and-ideographic-space",
+  "kind": "countersignature",
+  "expect": "valid",
+  "description": "cp1 with U+0085 (NEXT LINE) after artifact_digest and U+3000 (IDEOGRAPHIC SPACE) before ledger_signer. Both have the White_Space property, so normalization strips them and this is cp1: valid. Kills an ASCII-only strip.",
+  "input": {
+    "artifact_digest": "0xe5874f1ffe87f0a6dd9eb157730f67b86ee4538b125fe30fcc4e165213dd3fc4\u0085",
+    "prev_digest": null,
+    "seq": 1,
+    "countersignature": "0xfccc1add7301c688e03311ff04b9aecac4f0d81a468fc95128b24aa0c8aff2bf3b148181befffc6dbe739b1991d936cd434a2fa2bcb8ea1f49a06b8f7a3fff1d1c",
+    "ledger_signer": "\u30000x9d38BA84730271eb27Ac9bD4Bd2620c08dB4FDa6"
+  }
+}

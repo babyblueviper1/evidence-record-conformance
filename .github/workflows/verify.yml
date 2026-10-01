@@ -13,6 +13,20 @@ jobs:
           python3 tools/gen_vectors.py
           after=$(cat vectors/*.json MANIFEST.json | sha256sum)
           test "$before" = "$after"
+  crypto-profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Crypto profile vectors, read from crypto/MANIFEST.json (fails on an unexercised reason, a one-sided kind or an empty set)
+        run: python3 crypto/verify_crypto.py
+      - name: Every mutant killed by its named vector
+        run: python3 crypto/verify_crypto.py --mutants
+      - name: Crypto vector regeneration is byte-identical
+        run: |
+          before=$(cat crypto/vectors/*.json crypto/MANIFEST.json | sha256sum)
+          python3 crypto/gen_crypto_vectors.py
+          after=$(cat crypto/vectors/*.json crypto/MANIFEST.json | sha256sum)
+          test "$before" = "$after"
   cross-implementation:
     runs-on: ubuntu-latest
     steps:

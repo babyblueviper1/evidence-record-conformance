@@ -1,0 +1,13 @@
+{
+  "id": "cp7-digest-uppercase-0X-normalized",
+  "kind": "countersignature",
+  "expect": "valid",
+  "description": "cp1 with artifact_digest written 0X + upper-case hex. Lowercasing is part of normalization for digests and the signer, so this is cp1's link and it is valid. The countersignature is NOT normalized: cn18 pins 0X there as malformed.",
+  "input": {
+    "artifact_digest": "0XE5874F1FFE87F0A6DD9EB157730F67B86EE4538B125FE30FCC4E165213DD3FC4",
+    "prev_digest": null,
+    "seq": 1,
+    "countersignature": "0xfccc1add7301c688e03311ff04b9aecac4f0d81a468fc95128b24aa0c8aff2bf3b148181befffc6dbe739b1991d936cd434a2fa2bcb8ea1f49a06b8f7a3fff1d1c",
+    "ledger_signer": "0x9d38BA84730271eb27Ac9bD4Bd2620c08dB4FDa6"
+  }
+}
