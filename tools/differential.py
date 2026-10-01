@@ -18,8 +18,14 @@ precedence — a fixed list of alias forms for each class of the identifier rule
 case, trailing punctuation, percent-encoding, dot-segments, query and fragment components,
 cross-namespace address forms) on a party and an attestor, and the whitespace characters the
 two host languages' strip functions disagree on, at identifiers, digests and settlement
-fields), run through BOTH engines, verdict and reason-code compared directly. A form not on
-the list is not compared.
+fields; since v0.5.5 the chain_link sequence domain at and past both bounds, the phase rule's
+clauses at the shapes the two languages read differently, and a fixed string-domain battery:
+non-ASCII values under the encodings _encodings names (not n98's HTML escapes or n102's
+escaped DEL), and unpaired surrogates in values, names, arrays and nested objects, through
+digest_recompute, payload_text and the objects the binding and boundary criteria digest, and
+duplicate names that differ only in how a surrogate pair is written, one half raw and the other
+escaped), run through BOTH engines,
+verdict and reason-code compared directly. A form not on the list is not compared.
 Any divergence exits non-zero and prints the offending input.
 
 Run:  npm i viem  (repo root), then  python3 tools/differential.py
@@ -30,6 +36,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import unicodedata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -358,6 +365,44 @@ def mutations(kind, inp):
         if isinstance(inp.get(key), str):
             for c in (0x1C, 0x85, 0xFEFF):
                 with_key(key, chr(c) + inp[key], f"{key}=ws-pad-{c:04x}")
+    if kind == "chain_link" and isinstance(inp.get("artifact_digest"), str):
+        # v0.5.5: the sequence domain [1, 2^53-1]. An integer seq carries the link recomputed
+        # for that seq (where 8 bytes hold it), so only the domain can reject. 2^53+1 is the
+        # token a double-based parser reads as 2^53 (it forked the engines until v0.5.5), 1.0
+        # the integer-valued float token, and the rest are not numbers at all.
+        art = _norm_hex(inp["artifact_digest"], 32)
+        prev_raw = inp.get("prev_digest")
+        prev = None if prev_raw is None else _norm_hex(prev_raw, 32)
+        for seq in (0, -1, 1, 2, SEQ_MAX - 1, SEQ_MAX, SEQ_MAX + 1, SEQ_MAX + 2, 2**63, 2**64 - 1, 2**64,
+                    1.0, float(SEQ_MAX), "1", True, False, None, [1]):
+            m = json.loads(json.dumps(inp))
+            m["seq"] = seq
+            if art is not None and (prev_raw is None or prev is not None) \
+                    and isinstance(seq, int) and not isinstance(seq, bool) and 0 <= seq < 2**64:
+                m["expected_link"] = chain_link_digest(art, prev, seq)
+            out.append((f"seq={seq!r}", kind, m))
+        without_key("seq", "seq-absent")
+    if kind == "phase_claim":
+        # v0.5.5: every clause of the phase rule, at the shapes the two languages read
+        # differently (null against absent, arrays, non-string phases, letter case).
+        for tag, record in (("null", None), ("array", []), ("string", "delivery"), ("empty-object", {}),
+                            ("phase-null", {"economic_phase": None}),
+                            ("phase-array", {"economic_phase": ["delivery"]}),
+                            ("phase-upper", {"economic_phase": "Delivery"}),
+                            ("phase-number", {"economic_phase": 1})):
+            with_key("record", record, f"record={tag}")
+        without_key("record", "record-absent")
+        for tag, presented in (("null", None), ("upper", "Delivery"), ("array", ["delivery"]),
+                               ("unrecognized", "shipped")):
+            with_key("presented_as", presented, f"presented_as={tag}")
+        without_key("presented_as", "presented_as-absent")
+        if isinstance(inp.get("record"), dict) and "economic_phase" in inp["record"]:
+            m = json.loads(json.dumps(inp))
+            m["presented_as"] = m["record"]["economic_phase"]
+            out.append(("presented_as=the-record-phase", kind, m))
+            m = json.loads(json.dumps(inp))
+            m["record"]["economic_phase"] = m["presented_as"] = "shipped"
+            out.append(("phase=presented=unrecognized", kind, m))
     if kind == "offer_binding":
         # Regression for key absence versus an explicit JSON null. Python previously used
         # indexing while JS canonicalization received undefined; a refactor to `.get()` can
@@ -366,6 +411,188 @@ def mutations(kind, inp):
         m.pop("offer", None)
         m.setdefault("receipt", {})["offerDigest"] = digest_of(None)
         out.append(("offer=absent-with-null-commitment", kind, m))
+    return out
+
+
+SEQ_MAX = 2**53 - 1
+
+
+def _norm_hex(x, n):
+    """A 0x-prefixed digest of n bytes, lowercased, or None; builds links in the battery only."""
+    if not isinstance(x, str) or len(x) != 2 + 2 * n or not x.startswith("0x"):
+        return None
+    try:
+        bytes.fromhex(x[2:])
+    except ValueError:
+        return None
+    return x.lower()
+
+
+def _units(text):
+    """UTF-16 code units of a string, an unpaired surrogate included."""
+    u = text.encode("utf-16-be", "surrogatepass")
+    return [int.from_bytes(u[i:i + 2], "big") for i in range(0, len(u), 2)]
+
+
+def _esc(unit):
+    """A lowercase backslash-u escape of one UTF-16 code unit."""
+    return BACKSLASH + "u%04x" % unit
+
+
+def _k(b):
+    return "0x" + keccak256(b).hex()
+
+
+def _js_text(v):
+    """The text a canonicalizer built on JSON.stringify emits when it does not check for
+    unpaired surrogates: canonical() as written, except that an unpaired surrogate is written
+    as a lowercase backslash-u escape (ES2019 JSON.stringify) instead of failing. Integer
+    numbers only, as in the corpus."""
+    if isinstance(v, str):
+        units, out, i = _units(v), [], 0
+        while i < len(units):
+            u = units[i]
+            if 0xD800 <= u <= 0xDBFF and i + 1 < len(units) and 0xDC00 <= units[i + 1] <= 0xDFFF:
+                out.append(chr(0x10000 + ((u - 0xD800) << 10) + (units[i + 1] - 0xDC00)))
+                i += 2
+                continue
+            out.append(_esc(u) if 0xD800 <= u <= 0xDFFF else json.dumps(chr(u), ensure_ascii=False)[1:-1])
+            i += 1
+        return '"' + "".join(out) + '"'
+    if isinstance(v, bool) or v is None:
+        return json.dumps(v)
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, list):
+        return "[" + ",".join(_js_text(x) for x in v) + "]"
+    keys = sorted(v, key=lambda k: k.encode("utf-16-be", "surrogatepass"))
+    return "{" + ",".join(_js_text(k) + ":" + _js_text(v[k]) for k in keys) + "}"
+
+
+def _as_is(v):
+    """canonical() as written with an unpaired surrogate left as is, the text
+    json.dumps(..., ensure_ascii=False) emits when nothing checks."""
+    if isinstance(v, str):
+        return json.dumps(v, ensure_ascii=False)
+    if isinstance(v, bool) or v is None:
+        return json.dumps(v)
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, list):
+        return "[" + ",".join(_as_is(x) for x in v) + "]"
+    keys = sorted(v, key=lambda k: k.encode("utf-16-be", "surrogatepass"))
+    return "{" + ",".join(json.dumps(k, ensure_ascii=False) + ":" + _as_is(v[k]) for k in keys) + "}"
+
+
+def _encodings(text):
+    """Digests of one canonical text under UTF-8 (where the text has one), every non-ASCII code
+    unit escaped (DEL stays raw), Latin-1 truncation, CESU-8, NFC and NFD, and the bytes a UTF-8
+    encoder with no surrogate check emits: the encodings n71-n74, n85 and n86 name. Not the
+    encodings n98 and n102 name: nothing here escapes "<", ">", "&" or DEL."""
+    units = _units(text)
+    out = {
+        "surrogatepass": _k(text.encode("utf-8", "surrogatepass")),
+        "latin1": _k(bytes(u & 0xFF for u in units)),
+        "cesu8": _k("".join(chr(u) for u in units).encode("utf-8", "surrogatepass")),
+        "escaped": _k("".join(chr(u) if u < 0x80 else _esc(u) for u in units).encode("ascii")),
+    }
+    try:
+        out["utf8"] = _k(text.encode("utf-8"))
+        out["nfc"] = _k(unicodedata.normalize("NFC", text).encode("utf-8"))
+        out["nfd"] = _k(unicodedata.normalize("NFD", text).encode("utf-8"))
+    except UnicodeEncodeError:
+        pass
+    return out
+
+
+def fixed_battery():
+    """v0.5.5: string-domain cases, independent of any vector. Non-ASCII values (Latin-1, BMP,
+    astral, decomposed, line and paragraph separators, C1 controls, a BOM, noncharacters,
+    controls), each with its digest under every encoding _encodings names; unpaired surrogates
+    in values, names, arrays and nested objects (high, low, reversed), each with the escaped
+    digest a JSON.stringify-based canonicalizer computes and the as-is bytes; the same objects
+    through payload_text with both claimed forms; and the same objects inside what the binding
+    and boundary criteria digest, committed to by the JSON.stringify-based digest; and an
+    unpaired surrogate beside a number token or another shape fault, in both orders."""
+    c = chr
+    clean = [
+        {"a": c(0xE9)}, {"a": "e" + c(0x301)}, {"a": c(0x4E2D) + c(0x6587)}, {"a": c(0x20BB7)},
+        {"a": c(0x1F600)}, {c(0x20BB7): "x", c(0xFF61): "y"}, {"a": c(0x2028) + c(0x2029)},
+        {"a": c(0x7F) + c(0x80) + c(0x9F)}, {"a": c(0xFEFF)}, {"a": c(0xFFFF)}, {"a": c(0xFDD0)},
+        {"a": c(0x1FFFF)}, {"a": c(0) + c(0x1F) + c(8)},
+        {"a": c(0xE9), "b": [c(0x20BB7), {"c": "e" + c(0x301)}]},
+        {"e" + c(0x301): 1, c(0xE9): 2},
+    ]
+    lone = [
+        {"a": c(0xD800)}, {"a": c(0xDC00)}, {"a": c(0xDC00) + c(0xD800)}, {"a": "x" + c(0xD83D) + "y"},
+        {c(0xD800): 1}, {c(0xDFB7): c(0x20BB7)}, {"a": ["x", c(0xDFFF)]}, {"a": {"b": c(0xD83D)}},
+        {c(0x20BB7): c(0xD842)},
+    ]
+    out = []
+    for n, payload in enumerate(clean + lone):
+        text = _js_text(payload)
+        digests = _encodings(text)
+        digests["as-is"] = _k(_as_is(payload).encode("utf-8", "surrogatepass"))
+        digests["zero"] = "0x" + "00" * 32
+        for enc, dg in sorted(digests.items()):
+            out.append((f"fixed::digest-{n}-{enc}", "digest_recompute", {"payload": payload, "expected_digest": dg}))
+        # The object as raw JSON text with every non-ASCII code unit escaped, so a pair arrives
+        # as an escaped pair and an unpaired half as a lone escape, in both engines.
+        ptext = "".join(c(u) if u < 0x80 else _esc(u) for u in _units(json.dumps(payload, ensure_ascii=False)))
+        for form, claimed in (("escaped-claim", text), ("as-is-claim", _as_is(payload))):
+            out.append((f"fixed::payload_text-{n}-{form}", "canonical_bytes",
+                        {"payload_text": ptext, "claimed_canonical": claimed}))
+        offer = {"resourceUrl": "https://api.example/x", **payload}
+        out.append((f"fixed::offer-{n}", "offer_binding",
+                    {"offer": offer, "receipt": {"offerDigest": _k(_js_text(offer).encode("utf-8"))}}))
+        out.append((f"fixed::decision-{n}", "decision_evidence_binding",
+                    {"decision_evidence": payload, "record": {"decisionEvidenceDigest": _k(text.encode("utf-8"))}}))
+        out.append((f"fixed::boundary-{n}", "boundary_binding",
+                    {"prefix": [payload],
+                     "boundary_event": {"prefixDigest": _k(_js_text([payload]).encode("utf-8")), "position": 1}}))
+    # Precedence: in payload_text an unpaired surrogate is part of the text's shape and is
+    # decided before any number token, in both engines; in a loaded payload both engines meet
+    # names first, then values in canonical order, so the first fault in that order names the
+    # reason. Each case is a fault pair, in both orders.
+    lone_esc = _esc(0xD800)
+    huge = "9" * 5000
+    for n, text in enumerate([
+        '{"a":"' + lone_esc + '","b":2.0}', '{"a":2.0,"b":"' + lone_esc + '"}',
+        '{"' + lone_esc + '":1,"b":2.0}', '{"b":2.0,"' + lone_esc + '":1}',
+        '{"a":"' + lone_esc + '","b":' + huge + '}', '{"a":' + huge + ',"b":"' + lone_esc + '"}',
+        '{"a":"' + lone_esc + '","a":1}', '{"a":1,"a":"' + lone_esc + '"}',
+        '{"a":"' + lone_esc + '","b":NaN}', '[2.0,"' + lone_esc + '"]', '["' + lone_esc + '",2.0]',
+        '{"a":"' + lone_esc + '"', '{"a":[{"b":"' + lone_esc + '"}],"c":1e2}',
+    ]):
+        out.append((f"fixed::precedence-text-{n}", "canonical_bytes", {"payload_text": text, "claimed_canonical": "{}"}))
+    # Duplicate names that differ only in how a surrogate pair is written (n93): one half raw and
+    # the other escaped, beside the pair as two escapes, as one raw astral code point, and as two
+    # raw halves; in one object they are one name, in two objects they are not.
+    pair_esc = _esc(0xD842) + _esc(0xDFB7)
+    forms = {"raw-high": c(0xD842) + _esc(0xDFB7), "raw-low": _esc(0xD842) + c(0xDFB7),
+             "raw-halves": c(0xD842) + c(0xDFB7), "astral": c(0x20BB7), "escaped": pair_esc}
+    names = sorted(forms)
+    astral = c(0x20BB7)
+    for i, a in enumerate(names):
+        for b in names[i:]:
+            for shape, text in (
+                ("same-object", '{"' + forms[a] + '":1,"' + forms[b] + '":2}'),
+                ("nested", '{"x":{"' + forms[a] + '":1,"' + forms[b] + '":2}}'),
+                ("two-objects", '[{"' + forms[a] + '":1},{"' + forms[b] + '":2}]'),
+            ):
+                for form, claimed in (
+                    ("dup-claim", '{"' + astral + '":1,"' + astral + '":2}'),
+                    ("last-claim", '{"' + astral + '":2}'),
+                    ("arrays-claim", '[{"' + astral + '":1},{"' + astral + '":2}]'),
+                ):
+                    out.append((f"fixed::split-pair-{a}-{b}-{shape}-{form}", "canonical_bytes",
+                                {"payload_text": text, "claimed_canonical": claimed}))
+    for n, payload in enumerate([
+        {"a": c(0xD800), "b": 2.0}, {"a": 2.0, "b": c(0xD800)}, {c(0xD800): 2.0}, {"b": 2.0, c(0xDC00): 1},
+        [2.0, c(0xD800)], [c(0xD800), 2.0], {"a": c(0xD800), "b": 2**53}, {"a": 2**53, "b": c(0xD800)},
+    ]):
+        out.append((f"fixed::precedence-digest-{n}", "digest_recompute", {"payload": payload, "expected_digest": "0x" + "00" * 32}))
+        out.append((f"fixed::precedence-bytes-{n}", "canonical_bytes", {"payload": payload, "claimed_canonical": "{}"}))
     return out
 
 
@@ -382,6 +609,8 @@ def main():
         for tag, target_kind, mutated in mutations(kind, inp):
             label = f"{fname}::{tag}" if target_kind == kind else f"{fname}::{tag}@{target_kind}"
             cases.append({"label": label, "kind": target_kind, "input": mutated})
+    for label, kind, inp in fixed_battery():
+        cases.append({"label": label, "kind": kind, "input": inp})
 
     py_results = [py_verdict(c["kind"], c["input"]) for c in cases]
 

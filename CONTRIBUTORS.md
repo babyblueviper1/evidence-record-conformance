@@ -114,6 +114,19 @@ is parsed after load, went through a plain `json.loads`, and `{"a":1,"a":2}` rea
 written here and classed `contributed`; `p30` and `n42`–`n44`, siblings on the same pathway, were
 written here (v0.5.4).
 
+**Strings, sequence numbers and the phase rule** — vectors `p39`, `n75` and `n78`, from his
+wider mutation run at `ab7704d`
+([#1](https://github.com/tersignhq/evidence-record-conformance/issues/1#issuecomment-5908429130),
+2026-09-30). He re-ran August's 11 mutants and 2 controls against v0.5.4, all killed, then a wider
+set, and reported three survivors that neither #9 nor v0.5.4 lists, each checked against
+`verify.py`: no vector put non-ASCII in a string value, so an engine that escaped values to ASCII
+passed; no vector reached `chain_link`'s seq-below-1 branch, and the manifest did not state the
+domain (p4 with only `seq` set to 0 rejects either way, so the vector needs the link recomputed for
+seq 0); and no vector reached `phase_claim`'s missing-`economic_phase` branch, which in the
+TypeScript engine the vocabulary check covers. `p39` and `n78` are his inputs, classed
+`contributed`; `n75` is his input on p4's genesis digest, classed `live-ledger-derived` with his
+name in its source; their twins and the other vectors of v0.5.5 were written here.
+
 ## [@mohammedmessaoudene-cmd](https://github.com/mohammedmessaoudene-cmd) — Mohammed Messaoudene
 
 **Authority-decision evidence binding** — vectors `p19` / `n27` / `n28`, merged from
@@ -125,7 +138,8 @@ requested-to-effective reductions while producing the same protected record. In 
 n27 exercises the missing-commitment branch with one presented reduction; p19/n28 execute the
 distinct-object A/B contrast. The criterion is structural only and does not assert producer
 truth, independent validation, MCP adoption, or a normative digest, canonicalization, or field
-location.
+location. v0.5.5's `n95` is built on p19's decision-evidence object, with a lone surrogate appended
+to `policy.id`; it was written here and is classed `contributed`.
 
 OpenAI ChatGPT and Codex assisted with implementation, testing, analysis and drafting;
 Mohammed Messaoudene reviewed the executed evidence and remains responsible for the
@@ -223,6 +237,11 @@ and duplicate object names among the classes no vector pinned. v0.5.4 adds vecto
 three: scheme case (`n58`, with `p31` on the accepting side), percent-encoding (`n48`–`n50`,
 `n54`–`n56`, `p32`, `p34`) and duplicate names (`n41`, `n42`, `n57`, `n68`, `p30`, `p35`); the vectors
 were written here.
+The same reading noted that `n18` does not isolate the phase vocabulary rule, because its
+`presented_as` differs from its phase and equality alone rejects it. v0.5.5's `n80` presents an
+unrecognized phase as itself, which only the vocabulary rule rejects; it was written here. Its
+coverage gaps also listed an *earlier* phase presented: v0.5.5's `n90` presents a delivery record
+as funding, the reverse of `n6`; it was written here.
 
 ## Reported upstream
 

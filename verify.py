@@ -10,12 +10,15 @@ Layer under test: the EVIDENCE RECORD — the layer whose properties must surviv
 record being held by an interested party. Checks implemented, each with at least one
 adversarial vector for its known failure class:
 
-  digest_recompute      canonical form -> keccak256 content address
+  digest_recompute      canonical form -> keccak256 content address (UTF-8 of the canonical
+                        text, code points as is, never normalized; an unpaired surrogate has
+                        no canonical form)
   canonical_bytes       claimed canonical bytes actually canonical (RFC 8785 key order,
                         incl. the integer-key ordering class that breaks naive impls,
                         and the supplementary-plane class where UTF-16 code-unit order
                         diverges from code-point order)
-  chain_link            link digest binds artifact + prev + sequence number
+  chain_link            link digest binds artifact + prev + sequence number (an integer
+                        token in [1, 2^53-1]; seq 1 is the genesis link)
   chain_set             per-seller continuity AND completeness (no silent omission),
                         incl. per-record link recomputation where links are presented
   chain_commitment      a chain_set-valid prefix whose head carries an accumulator over
@@ -25,7 +28,9 @@ adversarial vector for its known failure class:
                         commits the whole prefix — a substituted prefix presented with the
                         real accumulator, or a last-link-only accumulator, rejects
   anchor_relation       anchoredDigest = SHA-256(subjectDigest bytes) — the existence bound
-  phase_claim           a record of one economic phase must not verify as a later phase
+  phase_claim           a record of one economic phase must not verify as any other phase,
+                        later or earlier (closed vocabulary of exact strings; a record with
+                        no phase verifies as none)
   independence_claim    a record attested only by parties to the transaction MUST NOT
                         count as an independent/neutral finding
   offer_binding         a receipt that does not commit to the accepted offer's canonical
@@ -66,11 +71,35 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 # ---------------------------------------------------------------- canonical form (JCS)
+class NotIJSONText(ValueError):
+    """JSON outside I-JSON (RFC 7493): no RFC 8785 canonical form exists for it."""
+
+
+def _well_formed(s):
+    """The string as UTF-16 reads it, or NotIJSONText if it holds a surrogate that is not half
+    of a pair (v0.5.5; p44/n81-n84). RFC 7493 §2.1 forbids unpaired surrogates in names and
+    values ("\\uDEAD" is invalid, "\\uD800\\uDEAD" legal), and RFC 8785 §3.2.2.2 requires a
+    canonicalizer to terminate on one: such a string has no UTF-8 form, so it has no canonical
+    bytes. Checked through a UTF-16 round trip, so a pair held as two code points reads as the
+    one code point it is, exactly as a JavaScript string does. json joins an escaped pair into
+    one code point, but a pair written with one half raw and the other escaped decodes to two
+    (n93), as does a Python string built by hand."""
+    try:
+        return s.encode("utf-16-be", "surrogatepass").decode("utf-16-be")
+    except UnicodeDecodeError:
+        raise NotIJSONText("a name or string value holds a surrogate that is not half of a pair "
+                           "(RFC 7493 §2.1) — no canonical form (RFC 8785 §3.2.2.2)") from None
+
+
 def canonical(value):
     """RFC 8785 (JCS) serialization for the vector domain (I-JSON, integer numerics).
 
     Keys sort by UTF-16 code units (encode to UTF-16BE and compare bytes — identical
     ordering, done explicitly rather than trusting the host language's default sort).
+    Every code point outside the control range is written as is (`ensure_ascii=False`;
+    §3.2.2.2), never normalized (§3.1), and digest_of hashes the text as UTF-8 (§3.2.4):
+    p39-p42 accept, n71-n74 reject. A name or value with an unpaired surrogate raises
+    NotIJSONText before any of that (n81-n84).
     """
     if value is None:
         return "null"
@@ -79,7 +108,7 @@ def canonical(value):
     if value is False:
         return "false"
     if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
+        return json.dumps(_well_formed(value), ensure_ascii=False)
     if isinstance(value, int):
         if abs(value) > 2**53 - 1:
             raise ValueError("outside the I-JSON interoperable range (|n| > 2^53-1)")
@@ -89,7 +118,11 @@ def canonical(value):
     if isinstance(value, list):
         return "[" + ",".join(canonical(v) for v in value) + "]"
     if isinstance(value, dict):
-        items = sorted(value.items(), key=lambda kv: kv[0].encode("utf-16-be"))
+        # Names are checked before they are sorted: the UTF-16 sort key cannot encode an
+        # unpaired surrogate, and until v0.5.5 the sort raised a UnicodeEncodeError that the
+        # callers read as a number-domain error (n82).
+        items = sorted(((_well_formed(k), v) for k, v in value.items()),
+                       key=lambda kv: kv[0].encode("utf-16-be"))
         return "{" + ",".join(
             json.dumps(k, ensure_ascii=False) + ":" + canonical(v) for k, v in items
         ) + "}"
@@ -101,6 +134,9 @@ def digest_of(value):
 
 
 GENESIS_PREV = "0x" + "00" * 32
+
+# The chain_link sequence domain, [1, SEQ_MAX] (v0.5.5): the I-JSON integer bound.
+SEQ_MAX = 2**53 - 1
 
 
 def chain_link_digest(artifact_digest, prev_digest, seq):
@@ -251,6 +287,11 @@ def _is_seq(x):
 def check_digest_recompute(inp):
     try:
         got = digest_of(inp["payload"])
+    except NotIJSONText as exc:
+        # A name or value with an unpaired surrogate has no canonical form, so no digest of it
+        # exists to compare, whatever digest is claimed (v0.5.5, n83, n84). Until v0.5.5 the UTF-8
+        # encode raised a UnicodeEncodeError, a ValueError, and landed in the branch below.
+        return "reject", "canonicalization_reject", str(exc)
     except ValueError as exc:
         # The digest domain is I-JSON with integer numerics. A non-integer number, or an
         # integer beyond 2^53-1, produces digests other implementations cannot reproduce
@@ -265,16 +306,16 @@ def check_digest_recompute(inp):
     return "valid", None, got
 
 
-class NotIJSONText(ValueError):
-    """Raw JSON text outside I-JSON (RFC 7493): no RFC 8785 canonical form exists for it."""
-
-
 def _reject_duplicate_names(pairs):
     """object_pairs_hook: duplicate object names are outside I-JSON (RFC 7493 §2.3; RFC 8785
-    §3.1). Compares DECODED names, so {"a":1,"\\u0061":2} is a duplicate (n42)."""
-    keys = [k for k, _ in pairs]
+    §3.1). Compares DECODED names, so {"a":1,"\\u0061":2} is a duplicate (n42), and compares
+    them as UTF-16 code units, as JSON.parse holds them (v0.5.5, n93): json joins only an
+    ESCAPED surrogate pair into one code point, so a pair written with its high half raw and
+    its low half escaped decodes to two code points, and a code-point comparison reads it as a
+    different name from the same pair written as two escapes."""
+    keys = [k.encode("utf-16-be", "surrogatepass") for k, _ in pairs]
     if len(keys) != len(set(keys)):
-        dupes = sorted({k for k in keys if keys.count(k) > 1})
+        dupes = sorted({k for (k, _), u in zip(pairs, keys) if keys.count(u) > 1})
         raise NotIJSONText(f"duplicate object name(s) {dupes} — not valid I-JSON")
     return dict(pairs)
 
@@ -290,15 +331,34 @@ def _parse_ijson_text(text):
     Pass 1 keeps every number token as text (`parse_int=str`, `parse_float=str`), so nothing
     about a number can raise before a duplicate name or a non-JSON constant anywhere in the
     text is found: without it, `{"a":<5000 digits>,"a":1}` read number_domain_reject here and
-    canonicalization_reject in TS. Pass 2 then parses numbers for the digest-domain check."""
+    canonicalization_reject in TS. Pass 2 then parses numbers for the digest-domain check.
+    An unpaired surrogate in a name or a string value is part of the text's shape (v0.5.5): it
+    is found on pass 1's tree, before any number, as the TS engine finds it on its first parse.
+    Found later, during canonical(), it raced the number tokens in key order, and the two
+    engines named different reasons for one text."""
     if not isinstance(text, str):
         raise NotIJSONText(f"payload_text must be a JSON string, got {type(text).__name__}")
     try:
-        json.loads(text, object_pairs_hook=_reject_duplicate_names, parse_constant=_reject_constant,
-                   parse_int=str, parse_float=str)
+        shape = json.loads(text, object_pairs_hook=_reject_duplicate_names, parse_constant=_reject_constant,
+                           parse_int=str, parse_float=str)
     except json.JSONDecodeError as exc:
         raise NotIJSONText(f"payload_text is not JSON text: {exc}") from None
+    _check_strings(shape)
     return json.loads(text)
+
+
+def _check_strings(node):
+    """_well_formed over every name and string value of a parsed tree (pass 1's number tokens
+    are ASCII digit strings and pass trivially)."""
+    if isinstance(node, str):
+        _well_formed(node)
+    elif isinstance(node, list):
+        for x in node:
+            _check_strings(x)
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            _well_formed(k)
+            _check_strings(v)
 
 
 def check_canonical_bytes(inp):
@@ -337,8 +397,13 @@ def check_chain_link(inp):
         prev = _norm_digest(prev_raw)
         if prev is None:
             return "reject", "continuity_reject", "unparseable prev digest"
-    if not _is_seq(inp.get("seq")) or inp["seq"] < 1:
-        return "reject", "continuity_reject", "sequence number is not a positive integer"
+    # The sequence domain is the integer tokens in [1, 2^53-1] (v0.5.5): seq 1 is the genesis
+    # link (n75 rejects 0), and past 2^53-1 two JSON engines can read one token as different
+    # integers, so they would recompute different links (n76; p43 accepts the bound). A seq
+    # that is not an integer token (n77, the token 1.0) rejects too. Bounded here, before the
+    # 8-byte encoding, so 2^64 and beyond reject rather than raise.
+    if not _is_seq(inp.get("seq")) or not 1 <= inp["seq"] <= SEQ_MAX:
+        return "reject", "continuity_reject", "sequence number is not an integer in [1, 2^53-1]"
     expected = _norm_digest(inp.get("expected_link"))
     if expected is None:
         return "reject", "continuity_reject", "unparseable expected link digest"

@@ -16,17 +16,35 @@ import { fileURLToPath } from "node:url";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // ---------------------------------------------------------------- canonical form (JCS)
+// v0.5.5 — a name or string value holding a surrogate that is not half of a pair has no canonical
+// form (RFC 7493 §2.1; RFC 8785 §3.2.2.2 requires a canonicalizer to terminate on it). Since
+// ES2019 JSON.stringify writes such a code unit as a \u escape instead of failing, while verify.py
+// kept it as is, so the engines read one input differently (n81-n84 forked them until v0.5.5); both
+// now reject it before serializing.
+// Mirrors verify.py's _well_formed: a high half followed by a low half is one code point, either
+// half anywhere else is unpaired.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+class NotIJSONText extends Error {}
+const wellFormed = (s) => {
+  if (LONE_SURROGATE.test(s)) {
+    throw new NotIJSONText("a name or string value holds a surrogate that is not half of a pair");
+  }
+  return s;
+};
 function canon(v) {
   if (v === null || v === true || v === false) return JSON.stringify(v);
-  if (typeof v === "string") return JSON.stringify(v);
+  if (typeof v === "string") return JSON.stringify(wellFormed(v));
   if (typeof v === "number") {
     if (!Number.isInteger(v)) throw new NumberDomainError("non-integer JSON number in the digest domain");
     if (!Number.isSafeInteger(v)) throw new NumberDomainError("outside the I-JSON interoperable range (|n| > 2^53-1)");
     return String(v);
   }
   if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
-  // Default JS string comparison IS UTF-16 code-unit order — the JCS rule.
-  return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+  // Default JS string comparison IS UTF-16 code-unit order — the JCS rule. Names are checked
+  // before they are sorted, as in verify.py.
+  const keys = Object.keys(v);
+  keys.forEach(wellFormed);
+  return "{" + keys.sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
 }
 class NumberDomainError extends Error {}
 
@@ -117,7 +135,6 @@ const deriveSettlementCommits = (r) => {
 // Key PRESENCE decides evaluability (`in` — identical semantics to Python's `in`, the
 // record_commits lesson); the recompute decides commitment. keccak256 over utf8 bytes in
 // both engines: stringToHex encodes utf8, as Python's .encode("utf-8") does.
-const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 const deriveDeliveryCommits = (inp) => {
   if (!("deliverable_bytes" in inp) && !("deliverable_digest" in inp)) return null;
   const presented = inp.deliverable_bytes;
@@ -141,6 +158,10 @@ const deriveRecordCommits = (inp) => {
   return parts.flat();
 };
 const isSeq = (x) => typeof x === "number" && Number.isInteger(x);
+// The chain_link sequence domain, [1, SEQ_MAX] (v0.5.5): the I-JSON integer bound. Past it a
+// double cannot tell adjacent integers apart, so this engine and verify.py would recompute
+// different links for one token (2^53+1 forked them until v0.5.5).
+const SEQ_MAX = 2 ** 53 - 1;
 
 const NO_CLAIM = new Set(["", "none", "issuer_attested"]);
 const PHASES = new Set(["funding", "delivery", "settlement", "refund", "reversal"]);
@@ -201,7 +222,6 @@ function parseDigestDomainText(text) {
 // object_pairs_hook — a raw-token comparison misses an escaped spelling of the same name (n42),
 // and a key set wider than one object rejects a name repeated across distinct objects (p30).
 // Runs in full BEFORE any number token is read, as verify.py's first pass does.
-class NotIJSONText extends Error {}
 function duplicateName(text) {
   const stack = [];
   for (let i = 0; i < text.length; i++) {
@@ -236,6 +256,19 @@ function assertIJSONText(text) {
     throw e;
   }
   if (duplicateName(text) !== null) throw new NotIJSONText("duplicate object name — not valid I-JSON");
+  // v0.5.5: an unpaired surrogate in a name or a string value is part of the text's shape, found
+  // here before any number token is read, as verify.py finds it on its first pass.
+  checkStrings(JSON.parse(text));
+}
+function checkStrings(node) {
+  if (typeof node === "string") wellFormed(node);
+  else if (Array.isArray(node)) node.forEach(checkStrings);
+  else if (node !== null && typeof node === "object") {
+    for (const k of Object.keys(node)) {
+      wellFormed(k);
+      checkStrings(node[k]);
+    }
+  }
 }
 
 // ------------------------------------------------------------------------ vector kinds
@@ -245,6 +278,7 @@ const CHECKS = {
     try {
       got = digestOf(inp.payload);
     } catch (e) {
+      if (e instanceof NotIJSONText) return ["reject", "canonicalization_reject"];
       if (e instanceof NumberDomainError) return ["reject", "number_domain_reject"];
       throw e;
     }
@@ -280,7 +314,7 @@ const CHECKS = {
       prev = normDigest(inp.prev_digest);
       if (prev === null) return ["reject", "continuity_reject"];
     }
-    if (!isSeq(inp.seq) || inp.seq < 1) return ["reject", "continuity_reject"];
+    if (!isSeq(inp.seq) || inp.seq < 1 || inp.seq > SEQ_MAX) return ["reject", "continuity_reject"];
     const expected = normDigest(inp.expected_link);
     if (expected === null) return ["reject", "continuity_reject"];
     return chainLink(artifact, prev, inp.seq) === expected ? ["valid", null] : ["reject", "continuity_reject"];

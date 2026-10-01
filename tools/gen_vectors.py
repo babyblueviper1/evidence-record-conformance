@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -275,6 +276,190 @@ BOUNDARY_PREFIX_DIGEST = digest_of(BOUNDARY_PREFIX)
 # re-digests history under the new algorithm at a transition — the failure mode n29 pins.
 SUCCESSOR_SUITE_PREFIX_DIGEST = "0x" + hashlib.sha3_256(
     canonical(BOUNDARY_PREFIX).encode("utf-8")).hexdigest()
+
+# v0.5.5 (issue #1, 2026-09-30) — non-ASCII string VALUES in the digest domain. Until v0.5.5
+# the corpus carried non-ASCII only in keys (p14, n12), so an engine that escaped VALUES to ASCII
+# before hashing passed every vector. Each accepting payload hashes keccak256 over the UTF-8
+# bytes of its canonical form, code points as is (RFC 8785 §3.2.2.2, §3.2.4, no normalization
+# §3.1); each rejecting twin carries the SAME payload with the digest one plausible wrong
+# encoding produces. Every alternative encoding is computed here from the canonical text, so a
+# drift in canonical() breaks generation rather than re-pinning a vector.
+NON_ASCII_LATIN1 = {"a": "\u00e9"}          # e-acute, one code point U+00E9 (NFC); @Rul1an's input
+NON_ASCII_CJK = {"a": "\u4e2d\u6587"}  # two BMP code points (zhong wen), three UTF-8 bytes each
+NON_ASCII_ASTRAL = {"a": "\U00020bb7"}       # U+20BB7: surrogate pair D842 DFB7 in UTF-16
+NON_ASCII_DECOMPOSED = {"a": "e\u0301"}      # e-acute as e + U+0301 COMBINING ACUTE ACCENT (NFD)
+
+
+def _keccak_hex(b):
+    return "0x" + keccak256(b).hex()
+
+
+def _utf16_units(text):
+    u = text.encode("utf-16-be", "surrogatepass")
+    return [int.from_bytes(u[i:i + 2], "big") for i in range(0, len(u), 2)]
+
+
+# n71: the text Python's json.dumps emits with its default ensure_ascii=True and the compact
+# separators below — every non-ASCII code point as a \u escape, an astral one as an escaped
+# surrogate pair. (With the default separators it writes a space after the colon.)
+ESCAPED_LATIN1_TEXT = json.dumps(NON_ASCII_LATIN1, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+assert ESCAPED_LATIN1_TEXT == '{"a":"' + chr(92) + 'u00e9"}' and ESCAPED_LATIN1_TEXT.isascii()
+# n72: one byte per UTF-16 code unit, its low eight bits — Node's Buffer.from(text, "latin1")
+# (alias "binary"), measured 2026-10-01: U+4E2D -> 0x2d, U+6587 -> 0x87.
+LATIN1_CJK_BYTES = bytes(u & 0xFF for u in _utf16_units(canonical(NON_ASCII_CJK)))
+assert LATIN1_CJK_BYTES == b'{"a":"\x2d\x87"}'
+# n73: CESU-8 (Unicode TR #26) — each UTF-16 code unit UTF-8-encoded on its own, so each half
+# of the pair becomes three bytes. Identical to UTF-8 on the BMP; only an astral code point can
+# tell the two apart.
+CESU8_ASTRAL_BYTES = "".join(chr(u) for u in _utf16_units(canonical(NON_ASCII_ASTRAL))).encode("utf-8", "surrogatepass")
+assert canonical(NON_ASCII_ASTRAL).encode("utf-8") == b'{"a":"\xf0\xa0\xae\xb7"}'
+assert CESU8_ASTRAL_BYTES == b'{"a":"\xed\xa1\x82\xed\xbe\xb7"}'
+# n74: the decomposed value's canonical text normalized to NFC before hashing — p39's digest.
+NFC_OF_DECOMPOSED_TEXT = unicodedata.normalize("NFC", canonical(NON_ASCII_DECOMPOSED))
+assert NFC_OF_DECOMPOSED_TEXT == canonical(NON_ASCII_LATIN1) != canonical(NON_ASCII_DECOMPOSED)
+assert canonical(NON_ASCII_DECOMPOSED).encode("utf-8") == b'{"a":"e\xcc\x81"}'
+
+# v0.5.5 — the chain_link sequence domain, an integer token in [1, 2^53-1]. The upper boundary
+# pair carries a non-genesis link (p6's second record over its predecessor), so the only thing
+# that differs from p43 to n76 is seq.
+SEQ_MAX = 2**53 - 1
+assert chain_link_digest(d[1], d[0], SEQ_MAX) != chain_link_digest(d[1], d[0], SEQ_MAX + 1)
+
+# v0.5.5 — a lone surrogate. A surrogate-pair ESCAPE is one code point (U+20BB7 here, the
+# astral value of p41) and is legal I-JSON; an unpaired one is not (RFC 7493 §2.1: "\uDEAD" is
+# invalid, "\uD800\uDEAD" legal), and RFC 8785 §3.2.2.2 requires a canonicalizer to terminate on
+# it. Each rejecting vector claims the text a plausible implementation emits for the lone code
+# unit: Python's json.dumps(..., ensure_ascii=False) writes it as is (n81), JSON.stringify since
+# ES2019 writes it as a lowercase \u escape (n82, n83, n84; measured on Node 24, 2026-10-01).
+BS = chr(92)
+PAIR_ESC = BS + "ud842" + BS + "udfb7"       # the escape text of U+20BB7
+HIGH_ESC, LOW_ESC = BS + "ud842", BS + "udfb7"
+LONE_HIGH, LONE_LOW = chr(0xD842), chr(0xDFB7)
+ASTRAL = "\U00020bb7"
+assert json.loads('"' + PAIR_ESC + '"') == ASTRAL and json.loads('"' + HIGH_ESC + '"') == LONE_HIGH
+# n83: the digest a JSON.stringify-based canonicalizer computes for {"a": <lone D842>}.
+LONE_SURROGATE_JS_TEXT = '{"a":"' + HIGH_ESC + '"}'
+# n84: p14's payload with U+10000's low half dropped, so the second NAME is a lone D800. The
+# escaped name sorts first by UTF-16 code unit (0xD800 < 0xFF61), as JSON.stringify-based
+# canonicalizers sort it.
+LONE_NAME_PAYLOAD = {chr(0xFF61): 1, chr(0xD800): 2}
+LONE_NAME_JS_TEXT = '{"' + BS + 'ud800":2,"' + chr(0xFF61) + '":1}'
+assert list(SUPP_PAYLOAD) == [chr(0xFF61), chr(0x10000)]
+
+# v0.5.5, review round — each clause of the new MANIFEST text pinned by a vector. _js_text is the
+# text a JSON.stringify-based canonicalizer emits when it does not check for unpaired surrogates:
+# canonical() as written, except that an unpaired surrogate becomes a lowercase \u escape (ES2019
+# JSON.stringify) instead of failing. Integer numbers only, as in the corpus.
+def _js_text(v):
+    if isinstance(v, str):
+        units, out, i = _utf16_units(v), [], 0
+        while i < len(units):
+            u = units[i]
+            if 0xD800 <= u <= 0xDBFF and i + 1 < len(units) and 0xDC00 <= units[i + 1] <= 0xDFFF:
+                out.append(chr(0x10000 + ((u - 0xD800) << 10) + (units[i + 1] - 0xDC00)))
+                i += 2
+                continue
+            out.append(BS + "u%04x" % u if 0xD800 <= u <= 0xDFFF else json.dumps(chr(u), ensure_ascii=False)[1:-1])
+            i += 1
+        return '"' + "".join(out) + '"'
+    if isinstance(v, bool) or v is None:
+        return json.dumps(v)
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, list):
+        return "[" + ",".join(_js_text(x) for x in v) + "]"
+    keys = sorted(v, key=lambda k: k.encode("utf-16-be", "surrogatepass"))
+    return "{" + ",".join(_js_text(k) + ":" + _js_text(v[k]) for k in keys) + "}"
+
+
+# On well-formed input the helper is canonical() itself, and it reproduces n83's and n84's texts.
+for _x in (OFFER_A, DECISION_EVIDENCE_A, BOUNDARY_PREFIX, SUPP_PAYLOAD, NON_ASCII_ASTRAL, NON_ASCII_DECOMPOSED):
+    assert _js_text(_x) == canonical(_x)
+assert LONE_SURROGATE_JS_TEXT == _js_text({"a": LONE_HIGH}) and LONE_NAME_JS_TEXT == _js_text(LONE_NAME_PAYLOAD)
+
+# p45/n85: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR are outside the range RFC 8785
+# section 3.2.2.2 escapes, so the canonical text carries them as is. n85's digest is over the
+# text with both written as \u escapes, which is what Go's encoding/json emits for this payload,
+# with or without SetEscapeHTML(false) (measured, go1.27.1, 2026-10-01).
+LINE_SEPARATORS = {"a": "\u2028\u2029"}
+ESCAPED_SEPARATORS_TEXT = '{"a":"' + BS + 'u2028' + BS + 'u2029"}'
+assert canonical(LINE_SEPARATORS).encode("utf-8") == b'{"a":"\xe2\x80\xa8\xe2\x80\xa9"}'
+# p46/n86: a decomposed NAME, as p42/n74 pin a decomposed value. n86's digest is the canonical
+# text normalized to NFC, {"\u00e9":1}.
+DECOMPOSED_NAME = {"e\u0301": 1}
+NFC_OF_DECOMPOSED_NAME_TEXT = unicodedata.normalize("NFC", canonical(DECOMPOSED_NAME))
+assert NFC_OF_DECOMPOSED_NAME_TEXT == '{"\u00e9":1}' != canonical(DECOMPOSED_NAME)
+# n92: an unpaired surrogate and an integer-valued float token in one payload_text, the number
+# first. The text's shape, the surrogate included, is decided before its number tokens, so the
+# reason is canonicalization_reject. claimed_canonical is what an engine that checks neither
+# emits: JSON.parse collapses 2.0 to 2, and JSON.stringify escapes the code unit.
+SURROGATE_AFTER_NUMBER_TEXT = '{"a":2.0,"b":"' + BS + 'ud800"}'
+SURROGATE_AFTER_NUMBER_JS_TEXT = '{"a":2,"b":"' + BS + 'ud800"}'
+# n93: one name written twice, first with the high half of U+20BB7's pair as a raw code unit and
+# the low half escaped, then as two escapes. Both decode to the same two UTF-16 code units, D842
+# DFB7. Python's json joins only an ESCAPED pair, so the first decodes to two code points and the
+# second to one: compared as code points the names differ, and compared as UTF-16 code units, as
+# JSON.parse holds them, they are one name. claimed_canonical is what an engine that misses the
+# duplicate emits.
+HALF_ESCAPED_PAIR = LONE_HIGH + LOW_ESC
+HALF_ESCAPED_DUP_TEXT = '{"' + HALF_ESCAPED_PAIR + '":1,"' + PAIR_ESC + '":2}'
+HALF_ESCAPED_DUP_CLAIM = '{"' + ASTRAL + '":1,"' + ASTRAL + '":2}'
+assert json.loads('"' + HALF_ESCAPED_PAIR + '"') != json.loads('"' + PAIR_ESC + '"')
+assert json.loads('"' + HALF_ESCAPED_PAIR + '"').encode("utf-16-be", "surrogatepass") \
+    == json.loads('"' + PAIR_ESC + '"').encode("utf-16-be", "surrogatepass")
+# n94-n96: an unpaired surrogate inside each object a binding or boundary criterion digests,
+# committed to by the digest a JSON.stringify-based canonicalizer computes for it, so an engine
+# that skips the check there recomputes the committed digest and accepts.
+LONE_OFFER = {"resourceUrl": "https://api.example/x", "a": chr(0xD800)}
+assert _js_text(LONE_OFFER) == '{"a":"' + BS + 'ud800","resourceUrl":"https://api.example/x"}'
+LONE_DECISION_EVIDENCE = {**DECISION_EVIDENCE_A, "policy": {"id": "host-default" + chr(0xD800), "version": "1"}}
+LONE_BOUNDARY_PREFIX = [
+    {"event": "record", "seq": 1},
+    {"event": "record" + chr(0xDC00), "seq": 2},
+    {"event": "record", "seq": 3},
+]
+
+# v0.5.5, second review round — clauses a mutant could still break without failing a vector.
+# A number token json.dump cannot write (an exponent form: Python writes the float 1.0 as 1.0)
+# is carried in the vector as RAW_TOKEN + the token, a string, and the writer below replaces
+# that quoted string with the bare token, then checks that the file parses and that no
+# placeholder remains.
+RAW_TOKEN = "\u0000raw-json-number-token:"
+RAW_TOKEN_RE = re.compile(re.escape(json.dumps(RAW_TOKEN)[:-1])
+                          + r'(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"')
+
+
+def _raw_number(token):
+    if not RAW_TOKEN_RE.fullmatch(json.dumps(RAW_TOKEN + token)):
+        sys.exit(f"raw number token {token!r} is not a JSON number token")
+    return RAW_TOKEN + token
+
+
+assert json.loads("1e0") == 1 and isinstance(json.loads("1e0"), float)
+# p51/n98: "<", ">" and "&" are outside the range RFC 8785 section 3.2.2.2 escapes, so the
+# canonical text carries them as is. n98's digest is over the text with the three written as
+# <, > and &, which Go's json.Marshal emits by default (HTML-safe output); an
+# Encoder with SetEscapeHTML(false) writes them as is (measured, go1.27.1, 2026-10-01).
+HTML_SIGNIFICANT = {"a": "<b>&"}
+HTML_ESCAPED_TEXT = '{"a":"' + BS + 'u003cb' + BS + 'u003e' + BS + 'u0026"}'
+assert canonical(HTML_SIGNIFICANT) == '{"a":"<b>&"}'
+# p52/n102: DEL (U+007F) and the C1 controls U+0080 and U+009F are control characters (Unicode
+# general category Cc) outside the range RFC 8785 section 3.2.2.2 escapes, so the canonical text
+# carries them as is. n102's digest is over the text with the three written as \u escapes, which
+# is what Python's json.dumps emits with its default ensure_ascii=True (which escapes DEL as well
+# as every non-ASCII code point) and separators=(",", ":"), and what an encoder that escapes
+# every Cc character emits.
+CC_OUTSIDE_JCS = {"a": "\u007f\u0080\u009f"}
+CC_ESCAPED_TEXT = '{"a":"' + BS + 'u007f' + BS + 'u0080' + BS + 'u009f"}'
+assert canonical(CC_OUTSIDE_JCS).encode("utf-8") == b'{"a":"\x7f\xc2\x80\xc2\x9f"}'
+assert json.dumps(CC_OUTSIDE_JCS, separators=(",", ":")) == CC_ESCAPED_TEXT
+# p53: U+00E9 and e + U+0301 as two names in one object. As UTF-16 code units they differ
+# (00E9 against 0065 0301), and no normalization applies (RFC 8785 section 3.1), so the text
+# repeats no name; the decomposed name sorts first (0x0065 < 0x00E9).
+NFC_AND_NFD_NAMES_TEXT = '{"é":1,"é":2}'
+NFC_AND_NFD_NAMES_CANONICAL = '{"é":2,"é":1}'
+assert canonical(json.loads(NFC_AND_NFD_NAMES_TEXT)) == NFC_AND_NFD_NAMES_CANONICAL
+assert unicodedata.normalize("NFC", "é") == "é"
 
 vectors = [
     # ---------------------------------------------------------------- positives
@@ -1788,6 +1973,498 @@ vectors = [
             "records": EQUIVOCATING_PREFIX,
         },
     },
+    # ------------------------- v0.5.5: non-ASCII string VALUES in the digest domain (2-sided)
+    # Reported by @Rul1an (issue #1, 2026-09-30): n12/p14 cover non-ASCII keys and nothing
+    # covered values. Four accepting payloads (Latin-1 range, BMP CJK, astral, decomposed), each
+    # beside a rejecting twin whose digest is the one a plausible wrong encoding produces.
+    {
+        "id": "p39-digest-non-ascii-latin1-value",
+        "kind": "digest_recompute",
+        "expect": "valid",
+        "description": "A non-ASCII string VALUE in the digest domain: {\"a\":\"\u00e9\"}, with \u00e9 the single code point U+00E9. RFC 8785 serializes every code point outside the ASCII control range as is (section 3.2.2.2) and encodes the result in UTF-8 (section 3.2.4), so the digest is keccak256 over the bytes 7b 22 61 22 3a 22 c3 a9 22 7d. Until v0.5.5 the corpus carried non-ASCII in the digest domain only in keys (p14, n12), so an engine that escaped string values to ASCII before hashing passed every vector. Accepting twin of n71. Input from @Rul1an's report (issue #1).",
+        "input": {"payload": NON_ASCII_LATIN1, "expected_digest": _keccak_hex(canonical(NON_ASCII_LATIN1).encode("utf-8"))},
+    },
+    {
+        "id": "n71-digest-non-ascii-escaped-before-hashing",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "recompute_mismatch",
+        "description": "Rejecting twin of p39: the same payload, with expected_digest computed over {\"a\":\"\\u00e9\"}, \u00e9 written as a \\u escape. That is the text Python's json.dumps emits with its default ensure_ascii=True and separators=(\",\", \":\"), so it is the digest a canonicalizer built on json.dumps(value, sort_keys=True, separators=(\",\", \":\")) computes. RFC 8785 section 3.2.2.2 escapes only the control range, the quotation mark and the backslash, and serializes every other code point as is: the escaped text is not the canonical form, and its digest does not commit to this payload. An engine that escapes non-ASCII values rejects p39 to p42 and accepts this vector; one that accepts either form accepts this vector only.",
+        "input": {"payload": NON_ASCII_LATIN1, "expected_digest": _keccak_hex(ESCAPED_LATIN1_TEXT.encode("utf-8"))},
+    },
+    {
+        "id": "p40-digest-non-ascii-cjk-value",
+        "kind": "digest_recompute",
+        "expect": "valid",
+        "description": "A non-ASCII string value from the Basic Multilingual Plane above Latin-1: {\"a\":\"\u4e2d\u6587\"} (U+4E2D U+6587), each a three-byte UTF-8 sequence. The digest is keccak256 over the UTF-8 bytes of the canonical form, code points as is (RFC 8785 sections 3.2.2.2 and 3.2.4). Accepting twin of n72.",
+        "input": {"payload": NON_ASCII_CJK, "expected_digest": _keccak_hex(canonical(NON_ASCII_CJK).encode("utf-8"))},
+    },
+    {
+        "id": "n72-digest-non-ascii-latin1-bytes",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "recompute_mismatch",
+        "description": "Rejecting twin of p40: the same payload, with expected_digest computed over the canonical text encoded one byte per UTF-16 code unit, each truncated to its low eight bits. Those are the bytes Node's Buffer.from(text, \"latin1\") (alias \"binary\") produces, so this is the digest of a pipeline that hashes the canonical string through that encoding: \u4e2d (U+4E2D) becomes 0x2d and \u6587 (U+6587) 0x87, and the value is lost. RFC 8785 section 3.2.4 requires UTF-8. An engine that hashes Latin-1 bytes rejects p39 to p42 and p14 and accepts this vector; one that accepts either encoding accepts this vector only.",
+        "input": {"payload": NON_ASCII_CJK, "expected_digest": _keccak_hex(LATIN1_CJK_BYTES)},
+    },
+    {
+        "id": "p41-digest-non-ascii-astral-value",
+        "kind": "digest_recompute",
+        "expect": "valid",
+        "description": "A supplementary-plane string value: {\"a\":\"\U00020bb7\"}, U+20BB7 (a CJK Extension B ideograph), one code point that UTF-16 holds as the surrogate pair D842 DFB7 and UTF-8 encodes in four bytes, f0 a0 ae b7. The digest is keccak256 over the UTF-8 bytes of the canonical form. Accepting twin of n73, and of n83, which drops the pair's second half.",
+        "input": {"payload": NON_ASCII_ASTRAL, "expected_digest": _keccak_hex(canonical(NON_ASCII_ASTRAL).encode("utf-8"))},
+    },
+    {
+        "id": "n73-digest-non-ascii-cesu8-bytes",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "recompute_mismatch",
+        "description": "Rejecting twin of p41: the same payload, with expected_digest computed over CESU-8 (Unicode Technical Report #26), where each half of the surrogate pair is encoded on its own in three bytes, ed a1 82 ed be b7 in place of f0 a0 ae b7. That is the output of a UTF-8 encoder that walks UTF-16 code units without combining pairs. CESU-8 equals UTF-8 on every BMP character, so p39, p40 and p42 cannot tell the two apart; only an astral code point can. RFC 8785 section 3.2.4 requires UTF-8. An engine that hashes CESU-8 rejects p41 and p14 and accepts this vector; one that accepts either encoding accepts this vector only.",
+        "input": {"payload": NON_ASCII_ASTRAL, "expected_digest": _keccak_hex(CESU8_ASTRAL_BYTES)},
+    },
+    {
+        "id": "p42-digest-non-ascii-decomposed-value",
+        "kind": "digest_recompute",
+        "expect": "valid",
+        "description": "p39's value in decomposed form: e followed by U+0301 COMBINING ACUTE ACCENT (Unicode NFD), which renders as p39's \u00e9 and is a different code-point sequence. RFC 8785 applies no Unicode normalization: every component of a JCS scheme MUST preserve string data as is (section 3.1). The digest is therefore keccak256 over the UTF-8 bytes of these code points (65 cc 81 for the value), and it differs from p39's. Accepting twin of n74: an engine that normalizes strings to NFC before hashing computes p39's digest here and rejects.",
+        "input": {"payload": NON_ASCII_DECOMPOSED, "expected_digest": _keccak_hex(canonical(NON_ASCII_DECOMPOSED).encode("utf-8"))},
+    },
+    {
+        "id": "n74-digest-non-ascii-normalized-before-hashing",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "recompute_mismatch",
+        "description": "Rejecting twin of p42: the same decomposed payload, with expected_digest computed over the canonical text normalized to NFC. That is p39's digest (asserted at generation), the value an engine that normalizes strings before hashing arrives at. Normalization changes the bytes a digest binds, and RFC 8785 section 3.1 requires string data to be preserved as is, so this digest does not commit to the presented payload. An engine that normalizes to NFC accepts this vector and rejects p42; one that accepts either form accepts this vector only.",
+        "input": {"payload": NON_ASCII_DECOMPOSED, "expected_digest": _keccak_hex(NFC_OF_DECOMPOSED_TEXT.encode("utf-8"))},
+    },
+    # ------------------------------ v0.5.5: chain_link sequence domain [1, 2^53-1] (2-sided)
+    # Reported by @Rul1an (issue #1, 2026-09-30): no vector reached the seq < 1 branch, and the
+    # manifest's chain_link line did not state the domain. The crypto profile (crypto/, PR #11,
+    # field_domain) states the same domain: seq 1 is the genesis link. p4 is the accepting twin
+    # at the lower bound, p43 at the upper.
+    {
+        "id": "n75-chain-link-seq-zero",
+        "kind": "chain_link",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": "p4's genesis link with seq 0, expected_link recomputed for seq 0, so the arithmetic holds and only the sequence domain can reject. A sequence number is an integer token in [1, 2^53-1]: seq 1 is the genesis link, as chain_set numbers its records 1..head.seq, so 0 is outside the domain. It is the link a zero-based numbering produces. p4 is the accepting twin at the lower bound. Without the lower bound this vector verifies; p4 with only seq changed rejects with or without it, because its link no longer matches. Input from @Rul1an's report (issue #1).",
+        "input": {
+            "artifact_digest": GENESIS_DIGEST,
+            "prev_digest": None,
+            "seq": 0,
+            "expected_link": chain_link_digest(GENESIS_DIGEST, None, 0),
+        },
+    },
+    {
+        "id": "n76-chain-link-seq-past-ijson-range",
+        "kind": "chain_link",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": "seq = 2^53, one past the sequence domain [1, 2^53-1], on p6's second record over its predecessor, expected_link recomputed for that seq. Past 2^53-1 a JSON number token no longer names one integer in every engine: a parser that reads numbers as doubles reads 9007199254740993 as 2^53 and recomputes a different link than an exact-integer parser does (measured on v0.5.4's engines with seq 2^53+1 and its exact link: Python valid, TypeScript continuity_reject). The domain stops where the I-JSON integer domain does (p12/n11). Rejecting twin of p43; v0.5.4's engines both accepted this vector.",
+        "input": {
+            "artifact_digest": d[1],
+            "prev_digest": d[0],
+            "seq": SEQ_MAX + 1,
+            "expected_link": chain_link_digest(d[1], d[0], SEQ_MAX + 1),
+        },
+    },
+    {
+        "id": "p43-chain-link-seq-ijson-boundary",
+        "kind": "chain_link",
+        "expect": "valid",
+        "description": "The top of the sequence domain: seq = 2^53-1, the largest integer every JSON engine carries exactly, on p6's second record over its predecessor, link recomputed. Valid. Accepting twin of n76: an engine that defends the bound by stopping short of it rejects here.",
+        "input": {
+            "artifact_digest": d[1],
+            "prev_digest": d[0],
+            "seq": SEQ_MAX,
+            "expected_link": chain_link_digest(d[1], d[0], SEQ_MAX),
+        },
+    },
+    {
+        "id": "n77-chain-link-float-seq-token",
+        "kind": "chain_link",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": "p4 with seq written as the JSON token 1.0 and p4's link. JSON.parse collapses the token to 1, and the link recomputes; Python's json keeps a float. A sequence number is an integer TOKEN (n38 pins the same rule for chain_set), so this rejects in both engines. p4 is the accepting twin.",
+        "input": {
+            "artifact_digest": GENESIS_DIGEST,
+            "prev_digest": None,
+            "seq": 1.0,
+            "expected_link": chain_link_digest(GENESIS_DIGEST, None, 1),
+        },
+    },
+    # ----------------------------------------- v0.5.5: phase_claim, every clause reached
+    # Reported by @Rul1an (issue #1, 2026-09-30): no vector reached the no-economic_phase branch.
+    # n79 reaches the record-not-an-object half of the same branch; n80 isolates the vocabulary
+    # clause, which n18 does not (its presented_as differs from its phase, so equality alone
+    # rejects it; listed as unisolated in issue #9). p7 is the accepting twin of all three.
+    {
+        "id": "n78-phase-claim-no-economic-phase",
+        "kind": "phase_claim",
+        "expect": "reject",
+        "reason": "phase_reject",
+        "description": "p7's record with economic_phase removed, presented as delivery. A record that carries no economic_phase is evidence of no phase and rejects. Until v0.5.5 no vector reached this branch: with it removed, the Python engine raises on this input and returns no verdict, while the TypeScript engine rejects through the vocabulary check, so there this vector pins the verdict rather than the branch. p7 is the accepting twin. Input from @Rul1an's report (issue #1).",
+        "input": {
+            "record": {"deliverable_digest": d[0]},
+            "presented_as": "delivery",
+        },
+    },
+    {
+        "id": "n79-phase-claim-record-not-an-object",
+        "kind": "phase_claim",
+        "expect": "reject",
+        "reason": "phase_reject",
+        "description": "The record presented as an explicit JSON null, as delivery evidence. A record that is not an object carries no phase and rejects; without the object check, both engines raise on the key test and return no verdict. p7 is the accepting twin.",
+        "input": {
+            "record": None,
+            "presented_as": "delivery",
+        },
+    },
+    {
+        "id": "n80-phase-claim-unrecognized-phase-presented-as-itself",
+        "kind": "phase_claim",
+        "expect": "reject",
+        "reason": "phase_reject",
+        "description": "n18's unrecognized phase token, presented as that same token. The phase vocabulary is closed (funding, delivery, settlement, refund, reversal): a record's phase must be one of them, and an uninterpretable phase does not verify as any phase, its own spelling included. n18 presents the token as delivery, so phase equality alone rejects it and the vocabulary clause stays unisolated; here only the vocabulary clause can reject. p7 is the accepting twin.",
+        "input": {
+            "record": {"economic_phase": "settled_and_delivered", "amount": "10", "asset": "USDC"},
+            "presented_as": "settled_and_delivered",
+        },
+    },
+    # --------------------------------- v0.5.5: lone surrogates have no canonical form (2-sided)
+    # RFC 7493 section 2.1 forbids unpaired surrogates in names and values; RFC 8785 section
+    # 3.2.2.2 requires a canonicalizer to terminate on them. v0.5.4's engines forked on every
+    # one of n81-n84 (measured). p44 is the paired form; n81/n82 each drop one half of one of
+    # its two pairs; n83 drops p41's second half, and n84 the second half of p14's astral name.
+    {
+        "id": "p44-canonical-bytes-surrogate-pair",
+        "kind": "canonical_bytes",
+        "expect": "valid",
+        "description": "Accepting twin of n81 and n82: payload_text {\"\\ud842\\udfb7\":\"\\ud842\\udfb7\"}, U+20BB7 written as a surrogate-pair escape, as a name and as a value. A paired escape is one code point (RFC 7493 section 2.1: \"\\uD800\\uDEAD\" is legal), and the canonical form writes it as is: {\"\U00020bb7\":\"\U00020bb7\"}. An engine that rejects every surrogate escape, rather than an unpaired one, fails here.",
+        "input": {"payload_text": '{"' + PAIR_ESC + '":"' + PAIR_ESC + '"}', "claimed_canonical": '{"' + ASTRAL + '":"' + ASTRAL + '"}'},
+    },
+    {
+        "id": "n81-canonical-bytes-lone-high-surrogate-in-value",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "p44 with the value's second half dropped: payload_text {\"\\ud842\\udfb7\":\"\\ud842\"}, a lone high surrogate in a value. RFC 7493 section 2.1 forbids an unpaired surrogate (\"\\uDEAD\" is invalid), and RFC 8785 section 3.2.2.2 requires a canonicalizer to terminate on one, so the text has no canonical form. claimed_canonical carries the code unit as is, the text Python's json.dumps(value, ensure_ascii=False) emits for it, so an engine that skips the check compares equal and accepts. Measured on v0.5.4's engines: Python valid, TypeScript canonicalization_reject (JSON.stringify escapes the code unit, so the comparison failed).",
+        "input": {"payload_text": '{"' + PAIR_ESC + '":"' + HIGH_ESC + '"}', "claimed_canonical": '{"' + ASTRAL + '":"' + LONE_HIGH + '"}'},
+    },
+    {
+        "id": "n82-canonical-bytes-lone-low-surrogate-in-name",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "p44 with the name's first half dropped: payload_text {\"\\udfb7\":\"\\ud842\\udfb7\"}, a lone LOW surrogate in a NAME. The rule covers names as well as values (RFC 7493 section 2.1), and a low half without its high half as well as the reverse, so a check that reads only values, or only looks for a high surrogate missing its low half, misses it. claimed_canonical carries the escape, {\"\\udfb7\":\"\U00020bb7\"}, the text JSON.stringify emits since ES2019, so an engine built on it that skips the check compares equal and accepts. Measured on v0.5.4's engines: TypeScript valid, Python number_domain_reject (its key sort raised a UnicodeEncodeError, which it read as a number-domain error).",
+        "input": {"payload_text": '{"' + LOW_ESC + '":"' + PAIR_ESC + '"}', "claimed_canonical": '{"' + LOW_ESC + '":"' + ASTRAL + '"}'},
+    },
+    {
+        "id": "n83-digest-lone-surrogate-in-value",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "p41's payload with the pair's second half dropped: {\"a\":\"\\ud842\"}, a lone high surrogate in the digest domain, with expected_digest computed over the text {\"a\":\"\\ud842\"} with the code unit escaped, which is what a canonicalizer built on JSON.stringify hashes. The payload has no canonical form (RFC 8785 section 3.2.2.2; RFC 7493 section 2.1) and no UTF-8 encoding, so it rejects with canonicalization_reject whatever digest is claimed. Measured on v0.5.4's engines: TypeScript valid, Python number_domain_reject.",
+        "input": {"payload": {"a": LONE_HIGH}, "expected_digest": _keccak_hex(LONE_SURROGATE_JS_TEXT.encode("utf-8"))},
+    },
+    {
+        "id": "n84-digest-lone-surrogate-in-name",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": "p14's payload with the second name's low half dropped: the name U+10000 (D800 DC00) becomes a lone high surrogate, D800, in the digest domain. expected_digest is computed over the text JSON.stringify emits for it, with that name escaped and sorted first by UTF-16 code unit. A name holding an unpaired surrogate has no canonical form (RFC 7493 section 2.1 covers member names; RFC 8785 section 3.2.2.2), so it rejects with canonicalization_reject, as n83 does for a value; p14 is the accepting twin. An engine that checks values and not names reads this vector valid when it is built on JSON.stringify, and rejects it with number_domain_reject when, as v0.5.4's Python engine did, its UTF-16 sort key raises on the name.",
+        "input": {"payload": LONE_NAME_PAYLOAD, "expected_digest": _keccak_hex(LONE_NAME_JS_TEXT.encode("utf-8"))},
+    },
+    # ------------- v0.5.5, review round: every clause the new MANIFEST text states, pinned
+    # Line and paragraph separators, and a decomposed NAME, in the digest domain (2-sided).
+    {
+        "id": "p45-digest-line-separators-value",
+        "kind": "digest_recompute",
+        "expect": "valid",
+        "description": 'U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR as a string value. RFC 8785 section 3.2.2.2 escapes only the control range U+0000-U+001F, the quotation mark and the backslash, and writes every other code point as is, these two included, so the digest is keccak256 over the UTF-8 bytes of the canonical text, with the value as e2 80 a8 e2 80 a9. Accepting twin of n85: an engine that escapes the two separators rejects here.',
+        "input": {"payload": LINE_SEPARATORS, "expected_digest": _keccak_hex(canonical(LINE_SEPARATORS).encode("utf-8"))},
+    },
+    {
+        "id": "n85-digest-line-separators-escaped",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "recompute_mismatch",
+        "description": 'Rejecting twin of p45: the same payload, with expected_digest computed over {"a":"' + BS + 'u2028' + BS + 'u2029"}, both separators written as escapes. Go encoding/json emits that text for this payload, with or without SetEscapeHTML(false) (measured, go1.27.1), so it is the digest a canonicalizer built on it computes. RFC 8785 section 3.2.2.2 does not escape them: the escaped text is not the canonical form, and its digest does not commit to this payload. An engine that escapes them rejects p45 and accepts this vector; one that accepts either form accepts this vector only.',
+        "input": {"payload": LINE_SEPARATORS, "expected_digest": _keccak_hex(ESCAPED_SEPARATORS_TEXT.encode("utf-8"))},
+    },
+    {
+        "id": "p46-digest-decomposed-name",
+        "kind": "digest_recompute",
+        "expect": "valid",
+        "description": 'A decomposed NAME in the digest domain: e followed by U+0301 COMBINING ACUTE ACCENT (Unicode NFD), as a member name with the value 1. p42 and n74 pin the rule for a value; a name is a string too, and RFC 8785 section 3.1 requires string data to be preserved as is, so the name is serialized and hashed as written, 65 cc 81. Accepting twin of n86: an engine that normalizes names to NFC rejects here.',
+        "input": {"payload": DECOMPOSED_NAME, "expected_digest": _keccak_hex(canonical(DECOMPOSED_NAME).encode("utf-8"))},
+    },
+    {
+        "id": "n86-digest-decomposed-name-normalized",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "recompute_mismatch",
+        "description": 'Rejecting twin of p46: the same payload, with expected_digest computed over the canonical text normalized to NFC, where the name is the single code point U+00E9 (c3 a9). An engine that normalizes names, and not values, before serializing passes p42 and n74, rejects p46 and accepts this vector; one that accepts either form accepts this vector only. RFC 8785 section 3.1 applies no normalization to names or values.',
+        "input": {"payload": DECOMPOSED_NAME, "expected_digest": _keccak_hex(NFC_OF_DECOMPOSED_NAME_TEXT.encode("utf-8"))},
+    },
+    # A chain_link seq that is not an integer token at all: a string, a boolean, null. Each carries
+    # p4's link for seq 1, so an engine that coerces the value to 1 recomputes the link and accepts.
+    {
+        "id": "n87-chain-link-seq-string",
+        "kind": "chain_link",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": 'p4 with seq written as the JSON string "1" and p4 link for seq 1. A sequence number is an integer token, and a string is not one, whatever it spells, so this rejects. An engine that coerces seq (Number() in JavaScript, int() in Python) reads 1, recomputes the link and accepts. p4 is the accepting twin.',
+        "input": {
+            "artifact_digest": GENESIS_DIGEST,
+            "prev_digest": None,
+            "seq": "1",
+            "expected_link": chain_link_digest(GENESIS_DIGEST, None, 1),
+        },
+    },
+    {
+        "id": "n88-chain-link-seq-boolean",
+        "kind": "chain_link",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": 'p4 with seq written as the JSON literal true and p4 link for seq 1. A boolean is not an integer token, so this rejects. In Python bool is a subclass of int and True == 1, so an engine that checks isinstance(seq, int) alone accepts; so does one that coerces seq with Number(). p4 is the accepting twin.',
+        "input": {
+            "artifact_digest": GENESIS_DIGEST,
+            "prev_digest": None,
+            "seq": True,
+            "expected_link": chain_link_digest(GENESIS_DIGEST, None, 1),
+        },
+    },
+    {
+        "id": "n89-chain-link-seq-null",
+        "kind": "chain_link",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": 'p4 with seq written as null and p4 link for seq 1. null is not an integer token, so this rejects. An engine that defaults a missing or null seq to the genesis sequence number 1 recomputes the link and accepts. p4 is the accepting twin.',
+        "input": {
+            "artifact_digest": GENESIS_DIGEST,
+            "prev_digest": None,
+            "seq": None,
+            "expected_link": chain_link_digest(GENESIS_DIGEST, None, 1),
+        },
+    },
+    # phase_claim: an EARLIER phase presented, and a phase token in another letter case.
+    {
+        "id": "n90-phase-claim-delivery-presented-as-funding",
+        "kind": "phase_claim",
+        "expect": "reject",
+        "reason": "phase_reject",
+        "description": 'p7 presented as funding: a delivery-phase record offered as evidence of funding, an earlier phase. n6 pins the other direction, a funding record presented as delivery. A record verifies as evidence of the phase it carries and of no other, so an engine that rejects only a record presented as a LATER phase passes n6 and accepts this vector. p7 is the accepting twin. Issue #9 listed an earlier phase presented among its coverage gaps.',
+        "input": {
+            "record": {"economic_phase": "delivery", "deliverable_digest": d[0]},
+            "presented_as": "funding",
+        },
+    },
+    {
+        "id": "n91-phase-claim-phase-letter-case",
+        "kind": "phase_claim",
+        "expect": "reject",
+        "reason": "phase_reject",
+        "description": 'A record whose economic_phase is "Delivery", presented as delivery. The vocabulary is closed and its tokens compare as exact strings: "Delivery" is not "delivery", so the record carries no phase this verifier can interpret, and it rejects. An engine that case-folds phase tokens accepts. p7 is the accepting twin.',
+        "input": {
+            "record": {"economic_phase": "Delivery"},
+            "presented_as": "delivery",
+        },
+    },
+    {
+        "id": "p47-phase-claim-funding-as-itself",
+        "kind": "phase_claim",
+        "expect": "valid",
+        "description": 'A record whose economic_phase is funding, presented as funding: valid. The vocabulary is closed at five words; p7 accepts delivery, and p47 to p50 accept the other four, one each, so an engine whose vocabulary leaves one out rejects here.',
+        "input": {
+            "record": {"economic_phase": "funding"},
+            "presented_as": "funding",
+        },
+    },
+    {
+        "id": "p48-phase-claim-settlement-as-itself",
+        "kind": "phase_claim",
+        "expect": "valid",
+        "description": 'A record whose economic_phase is settlement, presented as settlement: valid. The vocabulary is closed at five words; p7 accepts delivery, and p47 to p50 accept the other four, one each, so an engine whose vocabulary leaves one out rejects here.',
+        "input": {
+            "record": {"economic_phase": "settlement"},
+            "presented_as": "settlement",
+        },
+    },
+    {
+        "id": "p49-phase-claim-refund-as-itself",
+        "kind": "phase_claim",
+        "expect": "valid",
+        "description": 'A record whose economic_phase is refund, presented as refund: valid. The vocabulary is closed at five words; p7 accepts delivery, and p47 to p50 accept the other four, one each, so an engine whose vocabulary leaves one out rejects here.',
+        "input": {
+            "record": {"economic_phase": "refund"},
+            "presented_as": "refund",
+        },
+    },
+    {
+        "id": "p50-phase-claim-reversal-as-itself",
+        "kind": "phase_claim",
+        "expect": "valid",
+        "description": 'A record whose economic_phase is reversal, presented as reversal: valid. The vocabulary is closed at five words; p7 accepts delivery, and p47 to p50 accept the other four, one each, so an engine whose vocabulary leaves one out rejects here.',
+        "input": {
+            "record": {"economic_phase": "reversal"},
+            "presented_as": "reversal",
+        },
+    },
+    # payload_text: the surrogate-before-number order, and a duplicate name that only a
+    # comparison by UTF-16 code units finds.
+    {
+        "id": "n92-canonical-bytes-lone-surrogate-after-number",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": 'payload_text {"a":2.0,"b":"' + BS + 'ud800"}: an integer-valued float token, which n35 rejects with number_domain_reject, and after it a lone high surrogate, which n81 rejects with canonicalization_reject. With both faults in one text, the rule decides which reason it names: the shape of the text, an unpaired surrogate included, is decided before its number tokens, so this rejects with canonicalization_reject. An engine that finds the surrogate only while serializing meets the number first and names number_domain_reject. claimed_canonical is the text an engine that checks neither emits (JSON.parse collapses 2.0 to 2, and JSON.stringify escapes the code unit), so such an engine accepts.',
+        "input": {"payload_text": SURROGATE_AFTER_NUMBER_TEXT, "claimed_canonical": SURROGATE_AFTER_NUMBER_JS_TEXT},
+    },
+    {
+        "id": "n93-canonical-bytes-duplicate-name-half-escaped-pair",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "canonicalization_reject",
+        "description": 'payload_text names U+20BB7 twice: first with the high half of its surrogate pair, D842, as a raw code unit and the low half written ' + BS + 'udfb7, then as the two escapes ' + BS + 'ud842' + BS + 'udfb7. Both decode to the same UTF-16 code units, D842 DFB7, so the text repeats a name and rejects with canonicalization_reject (RFC 7493 section 2.3). Python json joins only an escaped pair, so there the first name decodes to two code points and the second to one; an engine that compares decoded names as code points sees two names, and accepts. Names compare as UTF-16 code units, as JSON.parse holds them. claimed_canonical is the text such an engine emits. An engine that rejects the raw code unit in the text itself also rejects with canonicalization_reject. The vector file carries the raw code unit as the escape ' + BS + 'ud842 inside payload_text, so a loader has to keep it, as for n81.',
+        "input": {"payload_text": HALF_ESCAPED_DUP_TEXT, "claimed_canonical": HALF_ESCAPED_DUP_CLAIM},
+    },
+    # An unpaired surrogate inside the objects the binding and boundary criteria digest.
+    {
+        "id": "n94-offer-binding-lone-surrogate",
+        "kind": "offer_binding",
+        "expect": "reject",
+        "reason": "binding_reject",
+        "description": 'An offer holding a lone high surrogate, D800, in a string value, and a receipt committing to the digest of {"a":"' + BS + 'ud800","resourceUrl":"https://api.example/x"}, the text JSON.stringify emits for it. The offer has no canonical form (RFC 7493 section 2.1; RFC 8785 section 3.2.2.2), so no digest of it exists to bind, and the criterion rejects with its own reason, binding_reject. An engine that skips the well-formedness check when it digests the offer recomputes the committed digest and accepts. p15 is the accepting twin of the criterion.',
+        "input": {"offer": LONE_OFFER, "receipt": {"offerDigest": _keccak_hex(_js_text(LONE_OFFER).encode("utf-8"))}},
+    },
+    {
+        "id": "n95-decision-evidence-binding-lone-surrogate",
+        "kind": "decision_evidence_binding",
+        "expect": "reject",
+        "reason": "binding_reject",
+        "description": 'p19 decision evidence with a lone high surrogate, D800, appended to policy.id, and a record committing to the digest a JSON.stringify-based canonicalizer computes for it, with the code unit escaped. The object has no canonical form, so the binding rejects with binding_reject. An engine that skips the well-formedness check when it digests decision evidence recomputes the committed digest and accepts. p19 is the accepting twin.',
+        "input": {
+            "record": {
+                "outcome": "allowed",
+                "decisionEvidenceDigest": _keccak_hex(_js_text(LONE_DECISION_EVIDENCE).encode("utf-8")),
+            },
+            "decision_evidence": LONE_DECISION_EVIDENCE,
+        },
+    },
+    {
+        "id": "n96-boundary-binding-lone-surrogate-in-prefix",
+        "kind": "boundary_binding",
+        "expect": "reject",
+        "reason": "boundary_reject",
+        "description": 'p18 with a lone low surrogate, DC00, appended to the second prefix record event, and prefixDigest the digest a JSON.stringify-based canonicalizer computes for that prefix, with the code unit escaped; position, attested length and coverage as in p18. The prefix has no canonical form, so the boundary event cannot bind it, and the criterion rejects with boundary_reject. An engine that skips the well-formedness check when it digests the prefix recomputes the claimed digest and accepts. p18 is the accepting twin.',
+        "input": {
+            "prefix": LONE_BOUNDARY_PREFIX,
+            "boundary_event": {
+                "event": "witness_ref_introduced",
+                "ruleVersion": "witness-ref-v1",
+                "prefixDigest": _keccak_hex(_js_text(LONE_BOUNDARY_PREFIX).encode("utf-8")),
+                "position": 3,
+                "attestedPrefixLength": 3,
+            },
+            "covered_through": 3,
+        },
+    },
+    # v0.5.5, second review round: a clause each, which a mutant broke without failing a vector.
+    # The exponent form of a number token, in chain_link's seq and in the digest domain.
+    {
+        "id": "n97-chain-link-exponent-seq-token",
+        "kind": "chain_link",
+        "expect": "reject",
+        "reason": "continuity_reject",
+        "description": "p4 with seq written as the JSON token 1e0, the exponent form, and p4's link. JSON.parse reads the token as the number 1, and the link recomputes; Python's json reads a float. A sequence number is an integer TOKEN, and a token with an exponent part is not one whatever its value, so this rejects in both engines. n77 pins the fraction form, 1.0; an engine, or a vector loader, that looks only for a decimal point passes n77 and accepts this vector. p4 is the accepting twin.",
+        "input": {
+            "artifact_digest": GENESIS_DIGEST,
+            "prev_digest": None,
+            "seq": _raw_number("1e0"),
+            "expected_link": chain_link_digest(GENESIS_DIGEST, None, 1),
+        },
+    },
+    {
+        "id": "n103-canonical-bytes-exponent-token",
+        "kind": "canonical_bytes",
+        "expect": "reject",
+        "reason": "number_domain_reject",
+        "description": "payload_text {\"amount\": 1e2}: a number token with an exponent part whose value is an integer. The digest-domain boundary is the token class, so the exponent form rejects as the fraction form does (n35, {\"amount\": 2.0}). JSON.parse reads 1e2 as 100, and claimed_canonical is {\"amount\":100}, the text JSON.stringify then emits, so an engine that looks only for a decimal point in number tokens passes n35 and accepts this vector. p25 is the accepting twin.",
+        "input": {"payload_text": '{"amount": 1e2}', "claimed_canonical": '{"amount":100}'},
+    },
+    # Code points RFC 8785 section 3.2.2.2 writes as is that an encoder may escape.
+    {
+        "id": "p51-digest-html-significant-value",
+        "kind": "digest_recompute",
+        "expect": "valid",
+        "description": 'A string value holding "<", ">" and "&": {"a":"<b>&"}. RFC 8785 section 3.2.2.2 escapes only the control range, the quotation mark and the backslash, so the canonical text carries the three as is, and the digest is keccak256 over its UTF-8 bytes. Accepting twin of n98: an engine that escapes them for HTML safety rejects here.',
+        "input": {"payload": HTML_SIGNIFICANT, "expected_digest": _keccak_hex(canonical(HTML_SIGNIFICANT).encode("utf-8"))},
+    },
+    {
+        "id": "n98-digest-html-significant-escaped",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "recompute_mismatch",
+        "description": 'Rejecting twin of p51: the same payload, with expected_digest computed over {"a":"' + BS + 'u003cb' + BS + 'u003e' + BS + 'u0026"}, the three written as escapes. Go encoding/json emits that text by default (json.Marshal escapes "<", ">" and "&" for HTML safety; an Encoder with SetEscapeHTML(false) does not; measured, go1.27.1), so it is the digest a canonicalizer built on json.Marshal computes. The escaped text is not the canonical form, and its digest does not commit to this payload. An engine that escapes them rejects p51 and accepts this vector; one that accepts either form accepts this vector only.',
+        "input": {"payload": HTML_SIGNIFICANT, "expected_digest": _keccak_hex(HTML_ESCAPED_TEXT.encode("utf-8"))},
+    },
+    {
+        "id": "p52-digest-del-and-c1-controls-value",
+        "kind": "digest_recompute",
+        "expect": "valid",
+        "description": "A string value holding DEL (U+007F) and the C1 controls U+0080 and U+009F. They are control characters in Unicode's general category Cc, but outside the range RFC 8785 section 3.2.2.2 escapes (U+0000-U+001F), so the canonical text carries them as is, and the digest is keccak256 over its UTF-8 bytes, 7f c2 80 c2 9f for the three. Accepting twin of n102: an engine that escapes every control character, not only that range, rejects here.",
+        "input": {"payload": CC_OUTSIDE_JCS, "expected_digest": _keccak_hex(canonical(CC_OUTSIDE_JCS).encode("utf-8"))},
+    },
+    {
+        "id": "n102-digest-del-and-c1-controls-escaped",
+        "kind": "digest_recompute",
+        "expect": "reject",
+        "reason": "recompute_mismatch",
+        "description": 'Rejecting twin of p52: the same payload, with expected_digest computed over {"a":"' + BS + 'u007f' + BS + 'u0080' + BS + 'u009f"}, the three written as escapes. That is the text Python\'s json.dumps emits with its default ensure_ascii=True, which escapes DEL as well as every non-ASCII code point, and separators=(",", ":"), so it is the digest a canonicalizer built on json.dumps(value, sort_keys=True, separators=(",", ":")) computes; an encoder that escapes every control character emits the same text. It is not the canonical form, and its digest does not commit to this payload. An engine that escapes them rejects p52 and accepts this vector; one that accepts either form accepts this vector only.',
+        "input": {"payload": CC_OUTSIDE_JCS, "expected_digest": _keccak_hex(CC_ESCAPED_TEXT.encode("utf-8"))},
+    },
+    # Duplicate names compare as UTF-16 code units, never after normalization.
+    {
+        "id": "p53-canonical-bytes-names-differ-only-in-normalization",
+        "kind": "canonical_bytes",
+        "expect": "valid",
+        "description": 'payload_text {"' + "é" + '":1,"e' + "́" + '":2}: the name U+00E9, and the name e + U+0301, which is U+00E9 decomposed (NFD). Names compare as UTF-16 code units, 00E9 against 0065 0301, and no normalization applies (RFC 8785 section 3.1), so the text repeats no name and has a canonical form; the decomposed name sorts first. An engine that normalizes names before its duplicate check reads one name twice and rejects here. n93 is the duplicate that a comparison by code units does find.',
+        "input": {"payload_text": NFC_AND_NFD_NAMES_TEXT, "claimed_canonical": NFC_AND_NFD_NAMES_CANONICAL},
+    },
+    # phase_claim: presented_as in another letter case, absent, and the neighbouring phase.
+    {
+        "id": "n99-phase-claim-presented-as-letter-case",
+        "kind": "phase_claim",
+        "expect": "reject",
+        "reason": "phase_reject",
+        "description": 'p7 presented as "Delivery". n91 pins letter case in the record\'s economic_phase; this pins it in presented_as. The vocabulary\'s words compare as exact strings wherever they stand, so "Delivery" is no phase, and the claim rejects. An engine that case-folds presented_as alone passes n91 and accepts this vector. p7 is the accepting twin.',
+        "input": {
+            "record": {"economic_phase": "delivery", "deliverable_digest": d[0]},
+            "presented_as": "Delivery",
+        },
+    },
+    {
+        "id": "n100-phase-claim-presented-as-absent",
+        "kind": "phase_claim",
+        "expect": "reject",
+        "reason": "phase_reject",
+        "description": "p7 with presented_as absent. presented_as must equal the record's phase, and an absent value equals no phase, so this rejects. An engine that defaults presented_as to the record's own phase accepts every record presented as nothing. p7 is the accepting twin.",
+        "input": {
+            "record": {"economic_phase": "delivery", "deliverable_digest": d[0]},
+        },
+    },
+    {
+        "id": "n101-phase-claim-refund-presented-as-reversal",
+        "kind": "phase_claim",
+        "expect": "reject",
+        "reason": "phase_reject",
+        "description": "A refund-phase record presented as reversal. The vocabulary's five words are five phases, refund and reversal among them, so a record of one is not evidence of the other. An engine that reads the two as one phase accepts. p49 is the accepting twin, and p50 accepts reversal presented as itself.",
+        "input": {
+            "record": {"economic_phase": "refund"},
+            "presented_as": "reversal",
+        },
+    },
 ]
 
 # ------------------------------------------------------------------ per-vector provenance
@@ -1816,6 +2493,7 @@ _PR6 = ("@navigatorbuilds", "contributed",
 _PR7 = "PR #7, commit adb6bab (issue #3): PayPerByte fixture, values from a live receipt in 0rkz/foreseal-x402-conformance (Apache-2.0)"
 _ON_0RKZ = "built on @0rkz's PayPerByte fixture (PR #7, issue #3); written here, commit a2b906d"
 _R4 = "@Rul1an's reproduction in issue #4 (2026-08-08), written here"
+_R1 = "@Rul1an's report in issue #1 (2026-09-30), issuecomment-5908429130"
 
 PROVENANCE = {
     "p1-live-genesis-receipt": (TERSIGN, "live-ledger", f"the ledger's genesis receipt and its counter-signature, {_LIVE_ENDPOINTS}"),
@@ -1926,16 +2604,78 @@ PROVENANCE = {
     "n39-issuer-sequence-duplicate-seq": _SYN,
     "p29-committed-prefix-one-record-per-position": _SYN,
     "n40-equivocating-record-at-committed-position": _SYN,
+    # v0.5.5. Three inputs are @Rul1an's, posted in issue #1 after he ran each against verify.py
+    # at ab7704d: p39 and n78 verbatim (contributed), and n75, which carries p4's live-ledger
+    # genesis digest and is therefore classed live-ledger-derived, its source naming him. n71,
+    # p39's twin, is synthetic: the value that distinguishes it, the escaped digest, is the
+    # suite's construction (vector_provenance in the manifest states the convention).
+    "p39-digest-non-ascii-latin1-value": (TERSIGN, "contributed", f"{_R1}: his input verbatim ({{\"a\":\"\u00e9\"}} with its correct digest), written here"),
+    "n71-digest-non-ascii-escaped-before-hashing": _SYN,
+    "p40-digest-non-ascii-cjk-value": _SYN,
+    "n72-digest-non-ascii-latin1-bytes": _SYN,
+    "p41-digest-non-ascii-astral-value": _SYN,
+    "n73-digest-non-ascii-cesu8-bytes": _SYN,
+    "p42-digest-non-ascii-decomposed-value": _SYN,
+    "n74-digest-non-ascii-normalized-before-hashing": _SYN,
+    "n75-chain-link-seq-zero": (TERSIGN, "live-ledger-derived", f"{_R1}: his input, p4's genesis link at seq 0 with the link recomputed for seq 0, written here"),
+    "n76-chain-link-seq-past-ijson-range": _SYN,
+    "p43-chain-link-seq-ijson-boundary": _SYN,
+    "n77-chain-link-float-seq-token": (TERSIGN, "live-ledger-derived", "p4's genesis link with seq written as the token 1.0"),
+    "n78-phase-claim-no-economic-phase": (TERSIGN, "contributed", f"{_R1}: his input verbatim, p7 without economic_phase, written here"),
+    "n79-phase-claim-record-not-an-object": _SYN,
+    "n80-phase-claim-unrecognized-phase-presented-as-itself": _SYN,
+    "p44-canonical-bytes-surrogate-pair": _SYN,
+    "n81-canonical-bytes-lone-high-surrogate-in-value": _SYN,
+    "n82-canonical-bytes-lone-low-surrogate-in-name": _SYN,
+    "n83-digest-lone-surrogate-in-value": _SYN,
+    "n84-digest-lone-surrogate-in-name": _SYN,
+    # v0.5.5, review round. n87-n89 carry p4's live-ledger genesis digest.
+    "p45-digest-line-separators-value": _SYN,
+    "n85-digest-line-separators-escaped": _SYN,
+    "p46-digest-decomposed-name": _SYN,
+    "n86-digest-decomposed-name-normalized": _SYN,
+    "n87-chain-link-seq-string": (TERSIGN, "live-ledger-derived", "p4's genesis link with seq written as the string \"1\""),
+    "n88-chain-link-seq-boolean": (TERSIGN, "live-ledger-derived", "p4's genesis link with seq written as true"),
+    "n89-chain-link-seq-null": (TERSIGN, "live-ledger-derived", "p4's genesis link with seq written as null"),
+    "n90-phase-claim-delivery-presented-as-funding": _SYN,
+    "n91-phase-claim-phase-letter-case": _SYN,
+    "p47-phase-claim-funding-as-itself": _SYN,
+    "p48-phase-claim-settlement-as-itself": _SYN,
+    "p49-phase-claim-refund-as-itself": _SYN,
+    "p50-phase-claim-reversal-as-itself": _SYN,
+    "n92-canonical-bytes-lone-surrogate-after-number": _SYN,
+    "n93-canonical-bytes-duplicate-name-half-escaped-pair": _SYN,
+    "n94-offer-binding-lone-surrogate": _SYN,
+    "n95-decision-evidence-binding-lone-surrogate": (TERSIGN, "contributed", "p19's decision-evidence object from @mohammedmessaoudene-cmd's PR #5 (commit c23a985), with a lone surrogate appended to policy.id; written here"),
+    "n96-boundary-binding-lone-surrogate-in-prefix": _SYN,
+    # v0.5.5, second review round. n97 carries p4's live-ledger genesis digest.
+    "n97-chain-link-exponent-seq-token": (TERSIGN, "live-ledger-derived", "p4's genesis link with seq written as the token 1e0"),
+    "n103-canonical-bytes-exponent-token": _SYN,
+    "p51-digest-html-significant-value": _SYN,
+    "n98-digest-html-significant-escaped": _SYN,
+    "p52-digest-del-and-c1-controls-value": _SYN,
+    "n102-digest-del-and-c1-controls-escaped": _SYN,
+    "p53-canonical-bytes-names-differ-only-in-normalization": _SYN,
+    "n99-phase-claim-presented-as-letter-case": _SYN,
+    "n100-phase-claim-presented-as-absent": _SYN,
+    "n101-phase-claim-refund-presented-as-reversal": _SYN,
 }
 
-# Values from the live ledger, and from the one contributed fixture Tersign-written vectors
-# reuse. Declared classes are checked against these in the vectors' own bytes, so a class
-# cannot drift from the material it describes.
+# Values from the live ledger, and from the contributed fixtures Tersign-written vectors reuse
+# or could reuse: @0rkz's PayPerByte delivery digest (PR #7), the `hostAllowed` member that
+# every decision-evidence object of PR #5 carries, and PR #6's suite-transition rule version.
+# Declared classes are checked against these in the vectors' own bytes, so a class cannot drift
+# from the material it describes. A contributed input with no value of its own (a reproduction
+# or probe written here, such as n41 or n48) has no marker; its class is declared.
 LIVE_LEDGER_MARKERS = tuple(x.lower() for x in (
     GENESIS_DIGEST, GENESIS_ARTIFACT["signature"], ANCHOR_SUBJECT, ANCHOR_ANCHORED,
     GENESIS_CHAIN_HEAD, GENESIS_CHAIN_COMMITMENT_DIGEST,
 ))
-CONTRIBUTED_MARKERS = {DELIVERY_DIGEST.lower(): "@0rkz"}
+CONTRIBUTED_MARKERS = {
+    DELIVERY_DIGEST.lower(): "@0rkz",
+    '"hostallowed":': "@mohammedmessaoudene-cmd",
+    '"suite-transition-v1"': "@navigatorbuilds",
+}
 SIGNER_NOTE = "the live ledger's signer address appears as sample data"
 
 
@@ -1975,15 +2715,16 @@ if set(PROVENANCE) != set(_ids):
 
 manifest = {
     "suite": "evidence-record-conformance",
-    "version": "0.5.4",
+    "version": "0.5.5",
     "layer": "evidence-record",
     "profile": "structural (stdlib): digests, canonical bytes, chain arithmetic, sequence closure, declared-claim evaluation. Counter-signature recovery over the links (secp256k1 personal_sign) is the crypto profile, outside the stdlib core — a structurally complete set recomputed wholesale by one forging party passes the structural predicate; the counter-signatures are what prevent that in production.",
-    "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) — the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35); duplicate object names rejected, at load and inside `payload_text`, where names compare after decoding and only within one object (canonicalization_reject; p30/n41/n42); a `payload_text` that is not a string holding JSON text (a non-JSON constant such as NaN, text that does not parse) rejects the same way (n43/n44), and its shape is decided before its number tokens",
+    "canonicalization": "RFC 8785 (JCS); vector domain is I-JSON with integer numerics (|n| <= 2^53-1); non-integer JSON number TOKENS rejected (number_domain_reject) — the boundary is the token class, so a fraction or exponent form rejects even when integer-valued (2.0, 1e2; p25/n35/n103); duplicate object names rejected, at load and inside `payload_text`, where names compare after decoding, as UTF-16 code units, and only within one object, so a surrogate pair written with one half raw and the other escaped repeats the same pair written as two escapes (canonicalization_reject; p30/n41/n42/n93), while names that differ only in Unicode normalization are two names (p53); no vector pins whether a pair written half raw accepts where it repeats no name; a `payload_text` that is not a string holding JSON text (a non-JSON constant such as NaN, text that does not parse) rejects the same way (n43/n44), and its shape, an unpaired surrogate included, is decided before its number tokens (n92); strings, names included, are serialized as RFC 8785 section 3.2.2.2 specifies: U+0000-U+001F, the quotation mark and the backslash are escaped (no vector pins these escapes), and every other code point is written as is, U+2028 and U+2029 (p45/n85), `<`, `>` and `&` (p51/n98), and DEL and the C1 controls (p52/n102) included; the canonical text is hashed as UTF-8 (section 3.2.4), so a digest over the text with non-ASCII written as \\u escapes, over Latin-1 bytes or over CESU-8 rejects (recompute_mismatch; p39-p41 accept, n71-n73 reject); no Unicode normalization is applied (section 3.1), so a decomposed value or name digests as written (p42/n74 for a value, p46/n86 for a name); a name or string value containing a surrogate that is not half of a pair is outside I-JSON (RFC 7493 section 2.1) and has no canonical form (RFC 8785 section 3.2.2.2): canonical_bytes and digest_recompute reject it with canonicalization_reject (n81-n84; a paired escape accepts, p44, as does p14's pair in a name), and a criterion that digests an object rejects it with its own reason (binding_reject for an offer, n94, and for decision evidence, n95; boundary_reject for a boundary prefix, n96). n81, n83, n84 and n93-n96 carry an unpaired surrogate as a \\u escape in the vector file itself, the only way a vector can carry one, so a vector loader must keep it as the code unit it names: a loader that replaces it (with U+FFFD, say) or refuses it does not run those vectors as written. A noncharacter, which RFC 7493 section 2.1 also excludes, is serialized as is; no vector pins it",
     "content_address": "keccak256(utf8(canonical(payload)))",
-    "chain_link": "keccak256(artifact_digest || prev_digest || seq_uint64_be) — wire form of a genesis predecessor is null; 32 zero bytes is the hashing-time substitution for null",
+    "chain_link": "keccak256(artifact_digest || prev_digest || seq_uint64_be) — wire form of a genesis predecessor is null; 32 zero bytes is the hashing-time substitution for null. seq is an integer TOKEN in [1, 2^53-1], and seq_uint64_be is that integer as 8 big-endian bytes. The lower bound is the first number chain_set gives a record (it numbers records 1..head.seq); chain_link does not relate a null prev_digest to seq, and no vector pins that relation. 2^53-1 is the I-JSON integer bound (p12/n11), past which two JSON engines can read one token as different integers. A seq of 0 (n75), a seq past 2^53-1 (n76), or a seq that is not an integer token (a fraction form, n77; an exponent form, n97; a string, n87; a boolean, n88; null, n89) rejects with continuity_reject; p4 accepts the lower bound and p43 the upper",
     "chain_set": "records chain raw artifact digests via prev pointers (genesis prev = null); head.digest equals the final record's artifact digest; completeness = every seq 1..head.seq present exactly once (a second record at an occupied seq rejects: n39); where a record presents a link, it must recompute as keccak256(artifact || prev || seq_be8)",
     "chain_commitment": "acc_0 = keccak256(utf8('tersign-chain-commitment-v1')); acc_n = keccak256(acc_{n-1} || link_n) over the recomputed links of a chain_set-valid set; head.acc must equal acc_{head.seq}. Production stamps keccak256(utf8(canonical({acc, head, schema:'tersign-chain-commitment-v1', seq}))); a prefix that passes the structural chain_set predicate but was not the one the commitment was built over rejects here",
     "anchor_relation": "anchored_digest = sha256(subject_digest_bytes)",
+    "phase_claim": "the economic-phase vocabulary is closed: funding, delivery, settlement, refund, reversal, each compared as an exact string (each accepts presented as itself: p47, p7, p48, p49, p50). A record verifies as evidence of the phase it carries and of no other phase, later or earlier: `record` must be an object (n79) carrying `economic_phase` (n78); that phase must be in the vocabulary, since a token outside it is not interpretable and verifies as no phase, its own spelling included (n80, n18), and so does a vocabulary word in another letter case (n91); `presented_as` is read against the same vocabulary, so a word in another letter case there is no phase either (n99), and no vector pins any other near-spelling on either side, such as a word padded with whitespace; and `presented_as` must be present (n100) and equal the record's phase. A vector pins three of the twenty ordered pairs of distinct words: a funding record presented as delivery (n6), a delivery record presented as funding (n90), and a refund record presented as reversal (n101), so refund and reversal are two phases; no vector pins the other seventeen, settlement's included. Every reject is phase_reject; p7 accepts",
     "offer_binding": "receipt.offerDigest = keccak256(utf8(canonical(offer))); a receipt that commits to no offer digest cannot bind terms and fails closed",
     "decision_evidence_binding": "within this suite, record.decisionEvidenceDigest = keccak256(utf8(canonical(decision_evidence))); a record presented as authority-decision evidence must bind the exact object. This instantiates the general match/missing/mismatch binding property and does not prescribe a digest, canonicalization, or field location for AUEC, MCP, or another protocol; producer truth and decision semantics remain out of scope",
     "identifier_normalization": "two identity syntaxes, both evaluated by every criterion that compares identity (pinned by one accepting vector each under the per-kind two-sided gate). Every identifier, whether in `parties` or an attestation's `by`, is normalized by one rule and compared only after it; the rule folds toward SAME PARTY, and an identifier it cannot decide does not parse. (1) Strip leading and trailing characters with the Unicode White_Space property, U+0009-U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000-U+200A, U+2028, U+2029, U+202F, U+205F and U+3000, and no others (n13/p33); a character without the property is not stripped, so an identifier padded with U+FEFF (a format character) or U+001C (a control character without the property) does not parse (n52/n53). (2) A 0x-address (0x and 40 hex digits, either case) compares lowercased, so an EIP-55 checksum variant is the same address. (3) Otherwise the identifier must be a scheme-qualified identifier in ASCII: a letter, then letters, digits, `+`, `.` or `-`, then one colon, then one or more printable non-space ASCII characters, letters in either case. Every percent-encoded triplet (either hex case) that encodes an unreserved character (A-Z a-z 0-9 `-` `.` `_` `~`) is decoded, in one left-to-right pass that is never repeated (RFC 3986 sections 6.2.2.2 and 2.4; n48/n49/n54/p32/p34); if any `%` remains, the identifier does not parse (n50/n55/n56). If it contains `?` (a query component), or its path, from the colon to the first `?` or `#`, has a segment that is exactly `.` or `..` (a dot-segment, RFC 3986 section 3.3), it does not parse (n59/n60/n61/n67/n70; neither class has an accepting twin, and p36, dots within segments, is the near-miss that accepts beside the dot-segments). The result is lowercased, the scheme included (n45/n58/p31), and every trailing `/`, `.` and `#` is removed (n31/n46/n47/p31); if a `#` remains (a fragment with content), it does not parse (n62; p31's trailing `#` alone is the near-miss that accepts); and it must still match the grammar with a lowercase scheme and a non-empty path (n51). (4) Anything else does not parse (n14). (5) Two identifiers name the same party when they are equal after normalization, or when both name the same 0x-address: a 0x-address names itself, and a scheme-qualified identifier whose final colon-separated component is a 0x-address (a CAIP-10 account such as eip155:8453:0x..., a did:pkh such as did:pkh:eip155:1:0x...) names that address, whatever the scheme (did:ethr:0x..., ethereum:0x..., acct:0x... as well), on either side and whatever the chain reference (n63/n64/p37 for CAIP-10 and did:pkh; n65/n66/n69/p38 for other schemes, acct: included). An identifier that does not parse after normalization fails the claim closed: it is never counted outside the parties. Not folded, and pinned by no vector: scheme-specific equivalences beyond these (RFC 3986 section 6.2.3, such as a default port) and names that resolve to an address (an ENS name, a did:web); two such identifiers compare as distinct. Digests compare after the same whitespace strip, lowercased",
@@ -1991,7 +2732,7 @@ manifest = {
     "duplicate_sequence": "a sequence attested only by its issuer evidences ordering, not that no other record carries the same `seq` and `correctionSeq`. Two records at one seq in a presented set reject on the duplicate, whatever the issuer attests (p28/n39; the issuer's `attestations` are permitted and not read). A record the issuer did not present is not in the bytes: the other record presented alone passes the structural chain_set predicate under the same head, and only a commitment over every link rejects it (p29/n40)",
     "commitment_derivation": "an independence claim reaches exactly as far as the record's DERIVED commitments, never a declared list (n22-n24): `settlement` when settlement_result.success is true and transaction is a string that is not empty after the whitespace strip of identifier_normalization; `network` when settlement_result.network is such a string; `delivery` when keccak256(utf8(deliverable_bytes)) == deliverable_digest. A record presenting none of these fields has no evaluable commitments (a scoped claim rejects as unevaluable); a record presenting them and committing to none has an EMPTY commitment set (a scoped claim rejects as overreach). Who delivered is not read by the derivation — position is the independence axis, decided before scope is",
     "field_naming": "harness-level input keys are snake_case (settlement_result, deliverable_bytes, decision_evidence, boundary_event); a key that quotes a protocol's own field keeps that protocol's wire spelling wherever it sits (payTo, resourceUrl, offerDigest, decisionEvidenceDigest). Contributed vectors follow the same two rules; the suite does not rename a protocol's fields to match its own, and does not camelCase its own",
-    "vector_provenance": "every entry names `author`, the GitHub account that authored the commit adding the vector (git log --diff-filter=A -- vectors/<file>), and `origin` = {class, source}. origin.class is closed: synthetic (inputs constructed in tools/gen_vectors.py); live-ledger (a record from the live ledger, unaltered, with a provenance block in the vector); live-ledger-derived (a live-ledger value reused or altered); contributed (an outside contributor's PR, commit, fixture or published reproduction, named in origin.source, including vectors written here on such material). Generation fails if a vector has no entry, if its live-ledger class (or its lack of one) disagrees with the live-ledger values and provenance block in its own bytes, or if it carries a contributed fixture without crediting the contributor; authorship is not decided at generation: it is checkable against git history with the command above. Credit for reporting a failure class is recorded in CONTRIBUTORS.md. Metadata only: neither engine reads it",
+    "vector_provenance": "every entry names `author`, the GitHub account that authored the commit adding the vector (git log --diff-filter=A -- vectors/<file>), and `origin` = {class, source}. origin.class is closed: synthetic (inputs constructed in tools/gen_vectors.py); live-ledger (a record from the live ledger, unaltered, with a provenance block in the vector); live-ledger-derived (a live-ledger value reused or altered); contributed (an outside contributor's PR, commit, fixture or published reproduction, named in origin.source, including vectors written here on such material). Among vectors written here, the class follows the value that distinguishes the vector: contributed where it is the contributor's (p39 and n78, @Rul1an's inputs; n24, his reproduction; n48, @stillmarcus24's attestor) and synthetic where the suite constructed it, beside a contributed vector or not (n42, n41's input with its second name escaped; n71, p39's payload under an escaping encoder's digest; n74, whose NFC digest equals p39's); a vector that carries a contributed fixture with a value of its own is contributed whoever altered it (n33, n95). Generation fails if a vector has no entry, if its live-ledger class (or its lack of one) disagrees with the live-ledger values and provenance block in its own bytes, or if it carries one of the contributed fixtures the generator recognizes in a vector's bytes (@0rkz's PayPerByte delivery digest, PR #5's decision-evidence objects, PR #6's suite-transition rule version) without crediting the contributor; a contributed input with no value of its own (a reproduction or probe written here) is declared, not derived; authorship is not decided at generation: it is checkable against git history with the command above. Credit for reporting a failure class is recorded in CONTRIBUTORS.md. Metadata only: neither engine reads it",
     "vectors": [
         {"file": f"{v['id']}.json", "kind": v["kind"], "expect": v["expect"],
          **({"reason": v["reason"]} if v["expect"] == "reject" else {}),
@@ -2038,8 +2779,12 @@ with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as f:
     check_readme_provenance(f.read(), manifest["vectors"])
 
 for v in vectors:
+    text = RAW_TOKEN_RE.sub(r"\1", json.dumps(v, indent=2, sort_keys=False))
+    json.loads(text)  # the substituted file still parses
+    if "raw-json-number-token" in text:
+        sys.exit(f"{v['id']}: a raw number token placeholder survived the writer")
     with open(os.path.join(V, f"{v['id']}.json"), "w") as f:
-        json.dump(v, f, indent=2, sort_keys=False)
+        f.write(text)
         f.write("\n")
 with open(os.path.join(ROOT, "MANIFEST.json"), "w") as f:
     json.dump(manifest, f, indent=2)
