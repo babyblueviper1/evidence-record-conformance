@@ -12,6 +12,7 @@
  "reject_reasons": [
   "unsupported_format",
   "malformed_input",
+  "unsupported_version",
   "malformed_signature",
   "non_canonical_s",
   "unrecoverable",
@@ -39,6 +40,16 @@
    "origin": {
     "class": "synthetic",
     "source": "test key signs a Receipt naming itself as payer"
+   }
+  },
+  {
+   "file": "ep3-transaction-omitted-equals-empty.json",
+   "kind": "payload_signature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "synthetic",
+    "source": "transaction is optional (x402 extension-offer-and-receipt.md Sec 5.3): omitted from the payload, signed with \"\"; a verifier MUST treat the omission as equivalent"
    }
   },
   {
@@ -132,16 +143,6 @@
    }
   },
   {
-   "file": "en10-field-missing.json",
-   "kind": "payload_signature",
-   "expect": "reject",
-   "author": "@babyblueviper1",
-   "origin": {
-    "class": "live-ledger-derived",
-    "source": "p1 with transaction removed"
-   }
-  },
-  {
    "file": "en11-extra-field.json",
    "kind": "payload_signature",
    "expect": "reject",
@@ -189,6 +190,46 @@
    "origin": {
     "class": "live-ledger-derived",
     "source": "p1's s and v with r off the curve"
+   }
+  },
+  {
+   "file": "en16-required-field-missing.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with payer (a required field, not the optional transaction) removed"
+   }
+  },
+  {
+   "file": "en17-unsupported-version.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "synthetic",
+    "source": "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition"
+   }
+  },
+  {
+   "file": "en18-top-level-extra-key.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1's envelope carries an extra top-level domain key beyond format/payload/signature/signer"
+   }
+  },
+  {
+   "file": "en19-payer-lone-surrogate.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with payer replaced by an unpaired UTF-16 surrogate, unencodable as UTF-8"
    }
   }
  ]
