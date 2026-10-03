@@ -26,10 +26,23 @@ def main():
     s_int = int(P1["signature"][66:130], 16); v_live = int(P1["signature"][130:], 16)
     LIVE_SRC = "p1's payload, signature and payer as served (core vector p1, live-ledger); Tersign published the typed-data construction on PR #11"
     tmsg_v2 = {**m, "payer": TEST_ADDR, "version": 2}
+    srv = {"format": "eip712", "payload": dict(m), "signature": tsign(m), "signer": TEST_ADDR}
+    d28 = 0
+    while True:                                   # deterministic: first issuedAt offset whose low-s signature has v = 28
+        d28 += 1
+        m28 = {**m, "payer": TEST_ADDR, "issuedAt": m["issuedAt"] + d28}
+        sig28 = tsign(m28)
+        if int(sig28[130:], 16) == 28:
+            break
+    t28 = {"format": "eip712", "payload": m28, "signature": sig28, "signer": TEST_ADDR}
+    mna = {**m, "payer": TEST_ADDR, "resourceUrl": m["resourceUrl"].rstrip("/") + "/r\u00e9sum\u00e9-\u20ac-\u65e5\u672c"}
+    nonascii = {"format": "eip712", "payload": mna, "signature": tsign(mna), "signer": TEST_ADDR}
     V = [
         ("ep1-live-p1-payload-signature", "valid", None, live, "live-ledger-derived", LIVE_SRC),
         ("ep2-test-key-accepting-twin", "valid", None, t, "synthetic", "test key signs a Receipt naming itself as payer"),
-        ("ep3-transaction-omitted-equals-empty", "valid", None, {**t, "payload": {k: v for k, v in tmsg.items() if k != "transaction"}}, "synthetic", "transaction is optional (x402 extension-offer-and-receipt.md Sec 5.3): omitted from the payload, signed with \"\"; a verifier MUST treat the omission as equivalent"),
+        ("ep3-server-key-not-payer", "valid", None, srv, "live-ledger-derived", "p1's payload as served (payer = p1's payer), signed by the published test key standing in for a server key that is not the payer"),
+        ("ep4-recovery-byte-28", "valid", None, t28, "live-ledger-derived", f"p1's payload with the test key as payer and issuedAt + {d28} (the first offset whose low-s signature has recovery id 1), signed with v = 28"),
+        ("ep5-non-ascii-string", "valid", None, nonascii, "live-ledger-derived", "p1's payload with the test key as payer and a non-ASCII resourceUrl (UTF-8 multi-byte, not Latin-1), signed by the test key"),
         ("en1-domain-chainid-8453", "reject", "signer_mismatch", {**t, "signature": tsign(tmsg, domain={**E.DOMAIN, "chainId": 8453})}, "synthetic", "test key signs under chainId 8453 (Base), the record's own network, not the pinned domain"),
         ("en2-domain-name-altered", "reject", "signer_mismatch", {**t, "signature": tsign(tmsg, domain={**E.DOMAIN, "name": "x402 receipts"})}, "synthetic", "test key signs under a domain name one letter off"),
         ("en3-type-fields-reordered", "reject", "signer_mismatch", {**t, "signature": tsign(tmsg, receipt_type=reordered, fields=reorder_fields)}, "synthetic", "test key signs with issuedAt and transaction swapped in the type string"),
@@ -39,15 +52,21 @@ def main():
         ("en7-personal-sign-over-struct", "reject", "signer_mismatch", {**t, "signature": sighex(*S.sign(S.personal_sign_hash(E.digest(tmsg)), PRIV, K))}, "synthetic", "test key personal_signs the EIP-712 digest instead of signing it"),
         ("en8-version-string", "reject", "malformed_input", {**live, "payload": {**m, "version": "1"}}, "live-ledger-derived", "p1 with version as the string \"1\""),
         ("en9-issuedat-negative", "reject", "malformed_input", {**live, "payload": {**m, "issuedAt": -1}}, "live-ledger-derived", "p1 with issuedAt -1"),
+        ("en10-field-missing", "reject", "malformed_input", {**live, "payload": {k: v for k, v in m.items() if k != "transaction"}}, "live-ledger-derived", "p1 with transaction removed: the payload is used exactly as transmitted (Sec 5.5 step 3); \"\" means absence, an omitted key is not filled in as \"\" (restored from the revealed set, 6293a62)"),
         ("en11-extra-field", "reject", "malformed_input", {**live, "payload": {**m, "amount": "1000"}}, "live-ledger-derived", "p1 with a field the Receipt type does not have"),
         ("en12-format-not-eip712", "reject", "unsupported_format", {**live, "format": "eip191"}, "live-ledger-derived", "p1 labelled eip191"),
         ("en13-ledger-key-is-not-payload-signer", "reject", "signer_mismatch", {**live, "signer": LEDGER}, "live-ledger-derived", "p1 with the ledger's counter-signing key declared as the payload signer"),
         ("en14-recovery-byte-29", "reject", "malformed_signature", {**live, "signature": with_sig(P1["signature"], v=29)}, "live-ledger-derived", "p1's signature with v = 29"),
         ("en15-unrecoverable-r-off-curve", "reject", "unrecoverable", {**live, "signature": with_sig(P1["signature"], r=off_curve_r())}, "live-ledger-derived", "p1's s and v with r off the curve"),
         ("en16-required-field-missing", "reject", "malformed_input", {**live, "payload": {k: v for k, v in m.items() if k != "payer"}}, "live-ledger-derived", "p1 with payer (a required field, not the optional transaction) removed"),
-        ("en17-unsupported-version", "reject", "unsupported_version", {"format": "eip712", "payload": tmsg_v2, "signature": tsign(tmsg_v2), "signer": TEST_ADDR}, "synthetic", "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition"),
-        ("en18-top-level-extra-key", "reject", "malformed_input", {**live, "domain": E.DOMAIN}, "live-ledger-derived", "p1's envelope carries an extra top-level domain key beyond format/payload/signature/signer"),
-        ("en19-payer-lone-surrogate", "reject", "malformed_input", {**live, "payload": {**m, "payer": "\ud800"}}, "live-ledger-derived", "p1 with payer replaced by an unpaired UTF-16 surrogate, unencodable as UTF-8"),
+        ("en17-unsupported-version", "reject", "unsupported_version", {"format": "eip712", "payload": tmsg_v2, "signature": tsign(tmsg_v2), "signer": TEST_ADDR}, "synthetic", "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition. Written on the class Noûs (@robertolocatelli81-dev) reported as er34 in their cleanroom cross-check on PR #13"),
+        ("en18-top-level-extra-key", "reject", "malformed_input", {**live, "domain": E.DOMAIN}, "live-ledger-derived", "p1's envelope carries an extra top-level domain key beyond format/payload/signature/signer. Written on the class Noûs (@robertolocatelli81-dev) reported as er38 on PR #13"),
+        ("en19-payer-lone-surrogate", "reject", "malformed_input", {**live, "payload": {**m, "payer": "\ud800"}}, "live-ledger-derived", "p1 with payer replaced by an unpaired UTF-16 surrogate, unencodable as UTF-8. Written on the class Noûs (@robertolocatelli81-dev) reported as er37 on PR #13"),
+        ("en20-recovery-byte-zero", "reject", "malformed_signature", {**t, "signature": with_sig(t["signature"], v=0)}, "live-ledger-derived", "ep2's signature with v = 0 (the raw recovery id, not 27/28; cn21's class)"),
+        ("en21-recovery-byte-one", "reject", "malformed_signature", {**t28, "signature": with_sig(t28["signature"], v=1)}, "live-ledger-derived", "ep4's signature with v = 1 (cn22's class)"),
+        ("en22-low-s-boundary-accepted-then-mismatch", "reject", "signer_mismatch", {**t, "signature": with_sig(t["signature"], s=S.N // 2)}, "live-ledger-derived", "ep2's r and v with s = n/2 exactly: passes the low-s check, recovers some other address (cn23's class)"),
+        ("en23-low-s-boundary-plus-one", "reject", "non_canonical_s", {**t, "signature": with_sig(t["signature"], s=S.N // 2 + 1)}, "live-ledger-derived", "ep2's r and v with s = n/2 + 1, the first high s (cn24's class)"),
+        ("en24-signature-uppercase-0X-prefix", "reject", "malformed_signature", {**t, "signature": "0X" + t["signature"][2:]}, "live-ledger-derived", "ep2's signature with a 0X prefix (cn18's class)"),
     ]
     out = os.path.join(HERE, "eip712_vectors")
     os.makedirs(out, exist_ok=True)

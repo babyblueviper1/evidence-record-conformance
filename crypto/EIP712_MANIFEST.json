@@ -43,13 +43,33 @@
    }
   },
   {
-   "file": "ep3-transaction-omitted-equals-empty.json",
+   "file": "ep3-server-key-not-payer.json",
    "kind": "payload_signature",
    "expect": "valid",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
-    "source": "transaction is optional (x402 extension-offer-and-receipt.md Sec 5.3): omitted from the payload, signed with \"\"; a verifier MUST treat the omission as equivalent"
+    "class": "live-ledger-derived",
+    "source": "p1's payload as served (payer = p1's payer), signed by the published test key standing in for a server key that is not the payer"
+   }
+  },
+  {
+   "file": "ep4-recovery-byte-28.json",
+   "kind": "payload_signature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1's payload with the test key as payer and issuedAt + 1 (the first offset whose low-s signature has recovery id 1), signed with v = 28"
+   }
+  },
+  {
+   "file": "ep5-non-ascii-string.json",
+   "kind": "payload_signature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1's payload with the test key as payer and a non-ASCII resourceUrl (UTF-8 multi-byte, not Latin-1), signed by the test key"
    }
   },
   {
@@ -143,6 +163,16 @@
    }
   },
   {
+   "file": "en10-field-missing.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with transaction removed: the payload is used exactly as transmitted (Sec 5.5 step 3); \"\" means absence, an omitted key is not filled in as \"\" (restored from the revealed set, 6293a62)"
+   }
+  },
+  {
    "file": "en11-extra-field.json",
    "kind": "payload_signature",
    "expect": "reject",
@@ -209,7 +239,7 @@
    "author": "@babyblueviper1",
    "origin": {
     "class": "synthetic",
-    "source": "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition"
+    "source": "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition. Written on the class Noûs (@robertolocatelli81-dev) reported as er34 in their cleanroom cross-check on PR #13"
    }
   },
   {
@@ -219,7 +249,7 @@
    "author": "@babyblueviper1",
    "origin": {
     "class": "live-ledger-derived",
-    "source": "p1's envelope carries an extra top-level domain key beyond format/payload/signature/signer"
+    "source": "p1's envelope carries an extra top-level domain key beyond format/payload/signature/signer. Written on the class Noûs (@robertolocatelli81-dev) reported as er38 on PR #13"
    }
   },
   {
@@ -229,7 +259,57 @@
    "author": "@babyblueviper1",
    "origin": {
     "class": "live-ledger-derived",
-    "source": "p1 with payer replaced by an unpaired UTF-16 surrogate, unencodable as UTF-8"
+    "source": "p1 with payer replaced by an unpaired UTF-16 surrogate, unencodable as UTF-8. Written on the class Noûs (@robertolocatelli81-dev) reported as er37 on PR #13"
+   }
+  },
+  {
+   "file": "en20-recovery-byte-zero.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "ep2's signature with v = 0 (the raw recovery id, not 27/28; cn21's class)"
+   }
+  },
+  {
+   "file": "en21-recovery-byte-one.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "ep4's signature with v = 1 (cn22's class)"
+   }
+  },
+  {
+   "file": "en22-low-s-boundary-accepted-then-mismatch.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "ep2's r and v with s = n/2 exactly: passes the low-s check, recovers some other address (cn23's class)"
+   }
+  },
+  {
+   "file": "en23-low-s-boundary-plus-one.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "ep2's r and v with s = n/2 + 1, the first high s (cn24's class)"
+   }
+  },
+  {
+   "file": "en24-signature-uppercase-0X-prefix.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "ep2's signature with a 0X prefix (cn18's class)"
    }
   }
  ]

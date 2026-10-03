@@ -4,12 +4,12 @@ Pinned (never read from the record): domain {name: "x402 receipt", version: "1",
 Receipt(uint256 version,string network,string resourceUrl,string payer,uint256 issuedAt,string transaction).
 Input: {format, payload, signature, signer}, exactly those four top-level keys, else malformed_input (an envelope
 carrying extra keys such as domain or types is not silently ignored). Order: format == "eip712" else unsupported_format;
-payload has the five required Receipt fields (version, network, resourceUrl, payer, issuedAt) plus the optional sixth,
-transaction, and no field the type does not have; uint256 fields are integer tokens in [0, 2**256); string fields are
-str and UTF-8 encodable (a lone UTF-16 surrogate rejects instead of crashing the hasher); otherwise malformed_input.
-`transaction` is optional per x402 extension-offer-and-receipt.md Sec 5.3 ("implementations MUST set unused fields to
-empty string ... Verifiers MUST treat empty-string optional fields as equivalent to absence"): an omitted key hashes as
-"". version must equal the integer 1; a well-typed but different version rejects as unsupported_version, not
+payload carries all six Receipt fields (version, network, resourceUrl, payer, issuedAt, transaction) and no field the type
+does not have; uint256 fields are integer tokens in [0, 2**256); string fields are str and UTF-8 encodable (a lone UTF-16
+surrogate rejects instead of crashing the hasher); otherwise malformed_input. The payload is hashed exactly as transmitted
+(x402 extension-offer-and-receipt.md Sec 5.5 step 3): an omitted `transaction` is a missing field, not "" -- the extension
+asks signers to SET unused fields to "" and verifiers to treat "" as equivalent to absence, which maps "" to absence and
+does not license filling an omitted key in (en10). version must equal the integer 1; a well-typed but different version rejects as unsupported_version, not
 malformed_input -- the schema is understood, just not this edition of it. signer a 0x-address (normalized as the
 core's identifier_normalization) else malformed_input; signature exactly 0x + 130 hex, v in {27, 28} else
 malformed_signature; low-s before recovery else non_canonical_s; recovery over the EIP-712 digest defines a point else
@@ -27,8 +27,7 @@ DOMAIN_TYPE = "EIP712Domain(string name,string version,uint256 chainId)"
 RECEIPT_TYPE = "Receipt(uint256 version,string network,string resourceUrl,string payer,uint256 issuedAt,string transaction)"
 FIELDS = (("version", "uint256"), ("network", "string"), ("resourceUrl", "string"), ("payer", "string"),
           ("issuedAt", "uint256"), ("transaction", "string"))
-OPTIONAL_FIELDS = {"transaction"}
-REQUIRED_FIELDS = {k for k, _ in FIELDS} - OPTIONAL_FIELDS
+REQUIRED_FIELDS = {k for k, _ in FIELDS}
 ALL_FIELD_KEYS = {k for k, _ in FIELDS}
 TOP_LEVEL_KEYS = {"format", "payload", "signature", "signer"}
 SUPPORTED_VERSION = 1
@@ -47,7 +46,7 @@ def _h(s):
 def digest(message, domain=DOMAIN, receipt_type=RECEIPT_TYPE, fields=FIELDS):
     dom = keccak256(_h(DOMAIN_TYPE) + _h(domain["name"]) + _h(domain["version"]) + _u(domain["chainId"]))
     enc = b"".join(
-        _u(message[k]) if t == "uint256" else _h(message.get(k, "") if k in OPTIONAL_FIELDS else message[k])
+        _u(message[k]) if t == "uint256" else _h(message[k])
         for k, t in fields
     )
     return keccak256(b"\x19\x01" + dom + keccak256(_h(receipt_type) + enc))
@@ -59,11 +58,9 @@ def check(inp):
     if inp.get("format") != "eip712":
         return "reject", "unsupported_format"
     m = inp.get("payload")
-    if not isinstance(m, dict) or not REQUIRED_FIELDS.issubset(m) or not set(m).issubset(ALL_FIELD_KEYS):
+    if not isinstance(m, dict) or set(m) != ALL_FIELD_KEYS:
         return "reject", "malformed_input"
     for k, t in FIELDS:
-        if k in OPTIONAL_FIELDS and k not in m:
-            continue
         v = m[k]
         if t == "uint256" and not (isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 2 ** 256):
             return "reject", "malformed_input"
