@@ -37,12 +37,15 @@ def main():
     t28 = {"format": "eip712", "payload": m28, "signature": sig28, "signer": TEST_ADDR}
     mna = {**m, "payer": TEST_ADDR, "resourceUrl": m["resourceUrl"].rstrip("/") + "/r\u00e9sum\u00e9-\u20ac-\u65e5\u672c"}
     nonascii = {"format": "eip712", "payload": mna, "signature": tsign(mna), "signer": TEST_ADDR}
+    ml1 = {**m, "payer": TEST_ADDR, "resourceUrl": m["resourceUrl"].rstrip("/") + "/r\u00e9sum\u00e9"}
+    latin1 = {"format": "eip712", "payload": ml1, "signature": tsign(ml1), "signer": TEST_ADDR}
     V = [
         ("ep1-live-p1-payload-signature", "valid", None, live, "live-ledger-derived", LIVE_SRC),
         ("ep2-test-key-accepting-twin", "valid", None, t, "synthetic", "test key signs a Receipt naming itself as payer"),
         ("ep3-server-key-not-payer", "valid", None, srv, "live-ledger-derived", "p1's payload as served (payer = p1's payer), signed by the published test key standing in for a server key that is not the payer"),
         ("ep4-recovery-byte-28", "valid", None, t28, "live-ledger-derived", f"p1's payload with the test key as payer and issuedAt + {d28} (the first offset whose low-s signature has recovery id 1), signed with v = 28"),
         ("ep5-non-ascii-string", "valid", None, nonascii, "live-ledger-derived", "p1's payload with the test key as payer and a non-ASCII resourceUrl (UTF-8 multi-byte, not Latin-1), signed by the test key"),
+        ("ep6-non-ascii-latin1-range-string", "valid", None, latin1, "live-ledger-derived", "p1's payload with the test key as payer and a non-ASCII resourceUrl whose every character is below U+0100 (r\u00e9sum\u00e9), signed by the test key over its UTF-8 bytes: a verifier that hashes Latin-1-representable strings as Latin-1 recovers a different address. Written on the surviving mutant No\u00fbs (@robertolocatelli81-dev) reported on PR #13"),
         ("en1-domain-chainid-8453", "reject", "signer_mismatch", {**t, "signature": tsign(tmsg, domain={**E.DOMAIN, "chainId": 8453})}, "synthetic", "test key signs under chainId 8453 (Base), the record's own network, not the pinned domain"),
         ("en2-domain-name-altered", "reject", "signer_mismatch", {**t, "signature": tsign(tmsg, domain={**E.DOMAIN, "name": "x402 receipts"})}, "synthetic", "test key signs under a domain name one letter off"),
         ("en3-type-fields-reordered", "reject", "signer_mismatch", {**t, "signature": tsign(tmsg, receipt_type=reordered, fields=reorder_fields)}, "synthetic", "test key signs with issuedAt and transaction swapped in the type string"),

@@ -73,6 +73,16 @@
    }
   },
   {
+   "file": "ep6-non-ascii-latin1-range-string.json",
+   "kind": "payload_signature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1's payload with the test key as payer and a non-ASCII resourceUrl whose every character is below U+0100 (résumé), signed by the test key over its UTF-8 bytes: a verifier that hashes Latin-1-representable strings as Latin-1 recovers a different address. Written on the surviving mutant Noûs (@robertolocatelli81-dev) reported on PR #13"
+   }
+  },
+  {
    "file": "en1-domain-chainid-8453.json",
    "kind": "payload_signature",
    "expect": "reject",
