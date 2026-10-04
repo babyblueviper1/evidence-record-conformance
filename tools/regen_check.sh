@@ -5,11 +5,11 @@ set -eu
 fail=0
 check() {  # $1 = label, $2 = generator, $3 = output dir, $4 = manifest
     if [ ! -f "$2" ]; then echo "skip  $1 ($2 not on this checkout)"; return 0; fi
-    before=$(cat "$3"/*.json "$4" | sha256sum | cut -d' ' -f1)
+    before=$(sha256sum "$3"/*.json "$4" | sha256sum | cut -d' ' -f1)
     n=$(ls "$3"/*.json | wc -l)
     mkdir -p /tmp/regen_aside && mv "$3" "/tmp/regen_aside/$(echo "$3" | tr / _)"
     python3 "$2" > /dev/null
-    after=$(cat "$3"/*.json "$4" | sha256sum | cut -d' ' -f1)
+    after=$(sha256sum "$3"/*.json "$4" | sha256sum | cut -d' ' -f1)
     m=$(ls "$3"/*.json | wc -l)
     if [ "$before" = "$after" ] && [ "$n" = "$m" ]; then echo "ok    $1: $m vectors + manifest byte-identical"
     else echo "FAIL  $1: $n -> $m vectors, digest $before -> $after"; fail=1; fi
