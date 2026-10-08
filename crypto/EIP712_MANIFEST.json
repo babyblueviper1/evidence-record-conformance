@@ -180,7 +180,7 @@
    "author": "@babyblueviper1",
    "origin": {
     "class": "live-ledger-derived",
-    "source": "p1 with transaction removed: the payload is used exactly as transmitted (Sec 5.5 step 3); \"\" means absence, an omitted key is not filled in as \"\" (restored from the revealed set, 6293a62)"
+    "source": "p1 with transaction removed: the payload is used exactly as transmitted (Sec 5.5 step 3); \"\" means absence, an omitted key is not filled in as \"\""
    }
   },
   {
@@ -240,7 +240,7 @@
    "author": "@babyblueviper1",
    "origin": {
     "class": "live-ledger-derived",
-    "source": "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition. Written on the class Noûs (@robertolocatelli81-dev) reported as er34 in their cleanroom cross-check on PR #13"
+    "source": "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition. Written on the class Noûs (@robertolocatelli81-dev) reported in their cleanroom cross-check on PR #13"
    }
   },
   {
@@ -250,7 +250,7 @@
    "author": "@babyblueviper1",
    "origin": {
     "class": "live-ledger-derived",
-    "source": "p1 with payer replaced by an unpaired UTF-16 surrogate, unencodable as UTF-8. Written on the class Noûs (@robertolocatelli81-dev) reported as er37 on PR #13"
+    "source": "p1 with payer replaced by an unpaired UTF-16 surrogate, unencodable as UTF-8. Written on the class Noûs (@robertolocatelli81-dev) reported on PR #13"
    }
   },
   {
@@ -330,7 +330,7 @@
    "author": "@babyblueviper1",
    "origin": {
     "class": "live-ledger-derived",
-    "source": "two faults in one input, en9's payload and en14's signature: the payload is checked before the signature (the normative order), so a runner that checks the signature first reports malformed_signature (cn34's class)"
+    "source": "two faults in one input, en9's payload and en14's signature: the payload is checked before the signature (this suite's check order), so a runner that checks the signature first reports malformed_signature (cn34's class)"
    }
   },
   {
