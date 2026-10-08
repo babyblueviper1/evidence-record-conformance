@@ -59,14 +59,12 @@ def main():
         ("en8-version-string", "reject", "malformed_input", {**live, "payload": {**m, "version": "1"}}, "live-ledger-derived", "p1 with version as the string \"1\""),
         ("en9-issuedat-negative", "reject", "malformed_input", {**live, "payload": {**m, "issuedAt": -1}}, "live-ledger-derived", "p1 with issuedAt -1"),
         ("en10-field-missing", "reject", "malformed_input", {**live, "payload": {k: v for k, v in m.items() if k != "transaction"}}, "live-ledger-derived", "p1 with transaction removed: the payload is used exactly as transmitted (Sec 5.5 step 3); \"\" means absence, an omitted key is not filled in as \"\" (restored from the revealed set, 6293a62)"),
-        ("en11-extra-field", "reject", "malformed_input", {**live, "payload": {**m, "amount": "1000"}}, "live-ledger-derived", "p1 with a field the Receipt type does not have"),
         ("en12-format-not-eip712", "reject", "unsupported_format", {**live, "format": "eip191"}, "live-ledger-derived", "p1 labelled eip191"),
         ("en13-ledger-key-is-not-payload-signer", "reject", "signer_mismatch", {**live, "signer": LEDGER}, "live-ledger-derived", "p1 with the ledger's counter-signing key declared as the payload signer"),
         ("en14-recovery-byte-29", "reject", "malformed_signature", {**live, "signature": with_sig(P1["signature"], v=29)}, "live-ledger-derived", "p1's signature with v = 29"),
         ("en15-unrecoverable-r-off-curve", "reject", "unrecoverable", {**live, "signature": with_sig(P1["signature"], r=off_curve_r())}, "live-ledger-derived", "p1's s and v with r off the curve"),
         ("en16-required-field-missing", "reject", "malformed_input", {**live, "payload": {k: v for k, v in m.items() if k != "payer"}}, "live-ledger-derived", "p1 with payer (a required field, not the optional transaction) removed"),
         ("en17-unsupported-version", "reject", "unsupported_version", {"format": "eip712", "payload": tmsg_v2, "signature": tsign(tmsg_v2), "signer": TEST_ADDR}, DERIVED, "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition. Written on the class Noûs (@robertolocatelli81-dev) reported as er34 in their cleanroom cross-check on PR #13"),
-        ("en18-top-level-extra-key", "reject", "malformed_input", {**live, "domain": E.DOMAIN}, "live-ledger-derived", "p1's envelope carries an extra top-level domain key beyond format/payload/signature/signer. Written on the class Noûs (@robertolocatelli81-dev) reported as er38 on PR #13"),
         ("en19-payer-lone-surrogate", "reject", "malformed_input", {**live, "payload": {**m, "payer": "\ud800"}}, "live-ledger-derived", "p1 with payer replaced by an unpaired UTF-16 surrogate, unencodable as UTF-8. Written on the class Noûs (@robertolocatelli81-dev) reported as er37 on PR #13"),
         ("en20-recovery-byte-zero", "reject", "malformed_signature", {**t, "signature": with_sig(t["signature"], v=0)}, "live-ledger-derived", "ep2's signature with v = 0 (the raw recovery id, not 27/28; cn21's class)"),
         ("en21-recovery-byte-one", "reject", "malformed_signature", {**t28, "signature": with_sig(t28["signature"], v=1)}, "live-ledger-derived", "ep4's signature with v = 1 (cn22's class)"),
@@ -88,11 +86,15 @@ def main():
         if reason:
             v["reject_reason"] = reason
         v["input"] = inp
+        if vid.startswith("ep1-"):     # live-ledger: name the public record, as cp1 does (Tersign's review on #13)
+            v["provenance"] = {"ledger": "https://tersign.ai", "record": "curl https://tersign.ai/v1/genesis",
+                               "payload_signature": P1["signature"], "payer": P1["payload"]["payer"],
+                               "note": "payload, signature and payer are p1's genesis receipt as served"}
         with open(os.path.join(out, vid + ".json"), "w") as fh:
             fh.write(json.dumps(v, indent=2) + "\n")
         entries.append({"file": vid + ".json", "kind": "payload_signature", "expect": expect, "author": "@babyblueviper1", "origin": {"class": cls, "source": src}})
     man = {"profile": "EIP-712 payload signature (x402 offer-and-receipt Receipt)", "runner": "crypto/verify_eip712.py",
-           "generator": "crypto/gen_eip712_vectors.py", "domain": E.DOMAIN, "primary_type": "Receipt", "type": E.RECEIPT_TYPE,
+           "generator": "crypto/gen_eip712_vectors.py", "licence": "Apache-2.0, as the repository (LICENSE)", "domain": E.DOMAIN, "primary_type": "Receipt", "type": E.RECEIPT_TYPE,
            "reject_reasons": list(E.REJECT_REASONS), "test_key_address": TEST_ADDR, "test_key_derivation": TEST_KEY_DERIVATION,
            "test_nonce_derivation": TEST_NONCE_DERIVATION, "vectors": entries}
     with open(os.path.join(HERE, "EIP712_MANIFEST.json"), "w") as fh:
@@ -103,7 +105,8 @@ def main():
         ok = got == (expect, reason); bad += not ok
         print(("ok  " if ok else "FAIL"), vid, got)
     print(f"{len(V) - bad}/{len(V)}")
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

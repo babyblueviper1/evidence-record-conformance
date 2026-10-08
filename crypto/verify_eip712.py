@@ -2,18 +2,19 @@
 """EIP-712 payload-signature profile (x402 offer-and-receipt Receipt), stdlib only + the suite's keccak.py.
 Pinned (never read from the record): domain {name: "x402 receipt", version: "1", chainId: 1}, primaryType Receipt,
 Receipt(uint256 version,string network,string resourceUrl,string payer,uint256 issuedAt,string transaction).
-Input: {format, payload, signature, signer}, exactly those four top-level keys, else malformed_input (an envelope
-carrying extra keys such as domain or types is not silently ignored). Order: format == "eip712" else unsupported_format;
-payload carries all six Receipt fields (version, network, resourceUrl, payer, issuedAt, transaction) and no field the type
-does not have; uint256 fields are integer tokens in [0, 2**256 - 1] (ep7 accepts 2**256 - 1, en25 rejects 2**256; the
-token 1.0 is not an integer, en26 -- a loader that parses JSON numbers to doubles, as JSON.parse does, cannot see that
-case or either edge and has to read numbers as tokens); string fields are str and UTF-8 encodable (a lone UTF-16
-surrogate rejects instead of crashing the hasher); otherwise malformed_input. The payload is hashed exactly as transmitted
+Input: {format, payload, signature, signer}. This runner rejects an envelope with other top-level keys and a payload with
+fields the Receipt type does not have (malformed_input); the profile does not pin either (README "Not pinned"): x402 Sec 2's
+SHOULD is met by rejecting and equally by accepting without interpreting the field. Order: format == "eip712" else
+unsupported_format; payload carries all six Receipt fields (version, network, resourceUrl, payer, issuedAt, transaction);
+uint256 fields are integer tokens in [0, 2**256 - 1] (ep7 accepts 2**256 - 1, en25 rejects 2**256; the token 1.0 is not
+an integer, en26). Of these, a loader that parses JSON numbers to doubles, as JSON.parse does, loses only ep7 (2**256 - 1
+is not exact as a double; 2**256 is) and en26 (1.0 becomes 1); a runner has to read numbers as tokens to see them; string fields must be UTF-8 encodable (a lone UTF-16 surrogate,
+en19, rejects instead of crashing the hasher); otherwise malformed_input. The payload is hashed exactly as transmitted
 (x402 extension-offer-and-receipt.md Sec 5.5 step 3): an omitted `transaction` is a missing field, not "" -- the extension
 asks signers to SET unused fields to "" and verifiers to treat "" as equivalent to absence, which maps "" to absence and
 does not license filling an omitted key in (en10). version must equal the integer 1; a well-typed but different version rejects as unsupported_version, not
-malformed_input -- the schema is understood, just not this edition of it. signer a 0x-address (normalized as the
-core's identifier_normalization) else malformed_input; signature exactly 0x + 130 hex, v in {27, 28} else
+malformed_input -- the schema is understood, just not this edition of it. signer is compared, as the core's
+identifier_normalization, with the recovered address; signature exactly 0x + 130 hex, v in {27, 28} else
 malformed_signature; low-s before recovery else non_canonical_s; recovery over the EIP-712 digest defines a point else
 unrecoverable; its address equals signer else signer_mismatch. String fields are hashed exactly as written: `payer` is a
 string, so a re-cased address is a different message (unlike an identifier)."""
@@ -61,7 +62,7 @@ def digest(message, domain=DOMAIN, receipt_type=RECEIPT_TYPE, fields=FIELDS, sh=
     return keccak256(b"\x19\x01" + dom + keccak256(_h(receipt_type) + enc))
 
 
-UINT_MAX = 2 ** 256 - 1   # uint256 fields: an integer token in [0, 2**256 - 1]; 1.0, true and "1" are not integers
+UINT_MAX = 2 ** 256 - 1   # uint256 fields: integer tokens, at most 2**256 - 1 (ep7, en25); 1.0 (en26) and "1" (en8) are not integers
 
 
 def _sig_shape(inp, mut):
@@ -76,7 +77,7 @@ def _sig_shape(inp, mut):
 
 def check(inp, mut=None):
     """mut names a one-site broken verifier (MUTANTS); None is the profile."""
-    top_ok = isinstance(inp, dict) and (set(inp) == TOP_LEVEL_KEYS or (mut == "extra_top_level_key_ignored" and TOP_LEVEL_KEYS <= set(inp)))
+    top_ok = isinstance(inp, dict) and set(inp) == TOP_LEVEL_KEYS
     if not top_ok:
         return "reject", "malformed_input"
     if inp.get("format") != "eip712":
@@ -86,8 +87,6 @@ def check(inp, mut=None):
     m = inp.get("payload")
     if mut == "transaction_filled_empty" and isinstance(m, dict) and "transaction" not in m:
         m = {**m, "transaction": ""}
-    if mut == "extra_field_ignored" and isinstance(m, dict) and ALL_FIELD_KEYS <= set(m):
-        m = {k: m[k] for k in ALL_FIELD_KEYS}
     if not isinstance(m, dict) or set(m) != ALL_FIELD_KEYS:
         return "reject", "malformed_input"
     cap = {"uint_cap_2_53": 2 ** 53 - 1, "uint_cap_2_64": 2 ** 64 - 1, "no_uint_upper_bound": float("inf")}.get(mut, UINT_MAX)
@@ -128,8 +127,6 @@ MUTANTS = {   # each is a plausible one-site broken verifier; the suite must fai
     "no_low_s_check": "en6-high-s-malleated",
     "v_normalized": "en20-recovery-byte-zero",
     "no_version_check": "en17-unsupported-version",
-    "extra_field_ignored": "en11-extra-field",
-    "extra_top_level_key_ignored": "en18-top-level-extra-key",
     "transaction_filled_empty": "en10-field-missing",
     "latin1_when_representable": "ep6-non-ascii-latin1-range-string",
     "uint_cap_2_53": "ep7-issuedat-max-uint256",

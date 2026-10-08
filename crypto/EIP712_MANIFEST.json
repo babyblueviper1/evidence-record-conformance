@@ -2,6 +2,7 @@
  "profile": "EIP-712 payload signature (x402 offer-and-receipt Receipt)",
  "runner": "crypto/verify_eip712.py",
  "generator": "crypto/gen_eip712_vectors.py",
+ "licence": "Apache-2.0, as the repository (LICENSE)",
  "domain": {
   "name": "x402 receipt",
   "version": "1",
@@ -183,16 +184,6 @@
    }
   },
   {
-   "file": "en11-extra-field.json",
-   "kind": "payload_signature",
-   "expect": "reject",
-   "author": "@babyblueviper1",
-   "origin": {
-    "class": "live-ledger-derived",
-    "source": "p1 with a field the Receipt type does not have"
-   }
-  },
-  {
    "file": "en12-format-not-eip712.json",
    "kind": "payload_signature",
    "expect": "reject",
@@ -250,16 +241,6 @@
    "origin": {
     "class": "live-ledger-derived",
     "source": "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition. Written on the class Noûs (@robertolocatelli81-dev) reported as er34 in their cleanroom cross-check on PR #13"
-   }
-  },
-  {
-   "file": "en18-top-level-extra-key.json",
-   "kind": "payload_signature",
-   "expect": "reject",
-   "author": "@babyblueviper1",
-   "origin": {
-    "class": "live-ledger-derived",
-    "source": "p1's envelope carries an extra top-level domain key beyond format/payload/signature/signer. Written on the class Noûs (@robertolocatelli81-dev) reported as er38 on PR #13"
    }
   },
   {
