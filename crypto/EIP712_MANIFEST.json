@@ -28,7 +28,7 @@
    "expect": "valid",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "live-ledger-derived",
+    "class": "live-ledger",
     "source": "p1's payload, signature and payer as served (core vector p1, live-ledger); Tersign published the typed-data construction on PR #11"
    }
   },
@@ -38,7 +38,7 @@
    "expect": "valid",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
+    "class": "live-ledger-derived",
     "source": "test key signs a Receipt naming itself as payer"
    }
   },
@@ -88,7 +88,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
+    "class": "live-ledger-derived",
     "source": "test key signs under chainId 8453 (Base), the record's own network, not the pinned domain"
    }
   },
@@ -98,7 +98,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
+    "class": "live-ledger-derived",
     "source": "test key signs under a domain name one letter off"
    }
   },
@@ -108,7 +108,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
+    "class": "live-ledger-derived",
     "source": "test key signs with issuedAt and transaction swapped in the type string"
    }
   },
@@ -148,7 +148,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
+    "class": "live-ledger-derived",
     "source": "test key personal_signs the EIP-712 digest instead of signing it"
    }
   },
@@ -248,7 +248,7 @@
    "expect": "reject",
    "author": "@babyblueviper1",
    "origin": {
-    "class": "synthetic",
+    "class": "live-ledger-derived",
     "source": "test key correctly signs a Receipt with version 2; the profile pins version 1, a well-typed but unsupported edition. Written on the class Noûs (@robertolocatelli81-dev) reported as er34 in their cleanroom cross-check on PR #13"
    }
   },
@@ -310,6 +310,46 @@
    "origin": {
     "class": "live-ledger-derived",
     "source": "ep2's r and v with s = n/2 + 1, the first high s (cn24's class)"
+   }
+  },
+  {
+   "file": "ep7-issuedat-max-uint256.json",
+   "kind": "payload_signature",
+   "expect": "valid",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1's payload with the test key as payer and issuedAt = 2**256 - 1, the top of the uint256 domain, signed by the test key (a runner that caps integers at 2**53 - 1 or 2**64 - 1 rejects it)"
+   }
+  },
+  {
+   "file": "en25-issuedat-2pow256.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "ep7 with issuedAt = 2**256, one above the uint256 domain"
+   }
+  },
+  {
+   "file": "en26-version-integral-float-token.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "p1 with version written as the token 1.0: not an integer token (a loader-level case, like the duplicate-key one: JSON.parse turns 1.0 into 1, so a runner must read number tokens to see it; the counter-signature profile's cn29 is the same class)"
+   }
+  },
+  {
+   "file": "en27-malformed-payload-and-signature.json",
+   "kind": "payload_signature",
+   "expect": "reject",
+   "author": "@babyblueviper1",
+   "origin": {
+    "class": "live-ledger-derived",
+    "source": "two faults in one input, en9's payload and en14's signature: the payload is checked before the signature (the normative order), so a runner that checks the signature first reports malformed_signature (cn34's class)"
    }
   },
   {

@@ -5,7 +5,9 @@ Receipt(uint256 version,string network,string resourceUrl,string payer,uint256 i
 Input: {format, payload, signature, signer}, exactly those four top-level keys, else malformed_input (an envelope
 carrying extra keys such as domain or types is not silently ignored). Order: format == "eip712" else unsupported_format;
 payload carries all six Receipt fields (version, network, resourceUrl, payer, issuedAt, transaction) and no field the type
-does not have; uint256 fields are integer tokens in [0, 2**256); string fields are str and UTF-8 encodable (a lone UTF-16
+does not have; uint256 fields are integer tokens in [0, 2**256 - 1] (ep7 accepts 2**256 - 1, en25 rejects 2**256; the
+token 1.0 is not an integer, en26 -- a loader that parses JSON numbers to doubles, as JSON.parse does, cannot see that
+case or either edge and has to read numbers as tokens); string fields are str and UTF-8 encodable (a lone UTF-16
 surrogate rejects instead of crashing the hasher); otherwise malformed_input. The payload is hashed exactly as transmitted
 (x402 extension-offer-and-receipt.md Sec 5.5 step 3): an omitted `transaction` is a missing field, not "" -- the extension
 asks signers to SET unused fields to "" and verifiers to treat "" as equivalent to absence, which maps "" to absence and
@@ -43,26 +45,57 @@ def _h(s):
     return keccak256(s.encode("utf-8"))
 
 
-def digest(message, domain=DOMAIN, receipt_type=RECEIPT_TYPE, fields=FIELDS):
+def _h_latin1_when_representable(s):
+    try:
+        return keccak256(s.encode("latin-1"))
+    except UnicodeEncodeError:
+        return keccak256(s.encode("utf-8"))
+
+
+def digest(message, domain=DOMAIN, receipt_type=RECEIPT_TYPE, fields=FIELDS, sh=_h):
     dom = keccak256(_h(DOMAIN_TYPE) + _h(domain["name"]) + _h(domain["version"]) + _u(domain["chainId"]))
     enc = b"".join(
-        _u(message[k]) if t == "uint256" else _h(message[k])
+        _u(message[k]) if t == "uint256" else sh(message[k])
         for k, t in fields
     )
     return keccak256(b"\x19\x01" + dom + keccak256(_h(receipt_type) + enc))
 
 
-def check(inp):
-    if not isinstance(inp, dict) or set(inp) != TOP_LEVEL_KEYS:
+UINT_MAX = 2 ** 256 - 1   # uint256 fields: an integer token in [0, 2**256 - 1]; 1.0, true and "1" are not integers
+
+
+def _sig_shape(inp, mut):
+    sig = inp.get("signature")
+    if not (isinstance(sig, str) and _SIG_RE.match(sig)):
+        return None
+    b = bytes.fromhex(sig[2:])
+    if mut == "v_normalized" and b[64] in (0, 1):
+        b = b[:64] + bytes([b[64] + 27])
+    return b if b[64] in (27, 28) else None
+
+
+def check(inp, mut=None):
+    """mut names a one-site broken verifier (MUTANTS); None is the profile."""
+    top_ok = isinstance(inp, dict) and (set(inp) == TOP_LEVEL_KEYS or (mut == "extra_top_level_key_ignored" and TOP_LEVEL_KEYS <= set(inp)))
+    if not top_ok:
         return "reject", "malformed_input"
     if inp.get("format") != "eip712":
         return "reject", "unsupported_format"
+    if mut == "signature_before_payload" and _sig_shape(inp, mut) is None:
+        return "reject", "malformed_signature"
     m = inp.get("payload")
+    if mut == "transaction_filled_empty" and isinstance(m, dict) and "transaction" not in m:
+        m = {**m, "transaction": ""}
+    if mut == "extra_field_ignored" and isinstance(m, dict) and ALL_FIELD_KEYS <= set(m):
+        m = {k: m[k] for k in ALL_FIELD_KEYS}
     if not isinstance(m, dict) or set(m) != ALL_FIELD_KEYS:
         return "reject", "malformed_input"
+    cap = {"uint_cap_2_53": 2 ** 53 - 1, "uint_cap_2_64": 2 ** 64 - 1, "no_uint_upper_bound": float("inf")}.get(mut, UINT_MAX)
     for k, t in FIELDS:
         v = m[k]
-        if t == "uint256" and not (isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 2 ** 256):
+        if mut == "integral_float_as_int" and isinstance(v, float) and v.is_integer():
+            v = int(v); m = {**m, k: v}
+        if t == "uint256" and not (isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= cap):
             return "reject", "malformed_input"
         if t == "string":
             if not isinstance(v, str):
@@ -71,28 +104,40 @@ def check(inp):
                 v.encode("utf-8")
             except UnicodeEncodeError:
                 return "reject", "malformed_input"
-    if m["version"] != SUPPORTED_VERSION:
+    if m["version"] != SUPPORTED_VERSION and mut != "no_version_check":
         return "reject", "unsupported_version"
     signer = norm_hex(inp.get("signer"), 20)
     if signer is None:
         return "reject", "malformed_input"
-    sig = inp.get("signature")
-    if not (isinstance(sig, str) and _SIG_RE.match(sig)):
-        return "reject", "malformed_signature"
-    b = bytes.fromhex(sig[2:])
-    if b[64] not in (27, 28):
+    b = _sig_shape(inp, mut)
+    if b is None:
         return "reject", "malformed_signature"
     r, s = int.from_bytes(b[:32], "big"), int.from_bytes(b[32:64], "big")
-    if s > S.N // 2:
+    if s > S.N // 2 and mut != "no_low_s_check":
         return "reject", "non_canonical_s"
-    Q = S.recover(digest(m), r, s, b[64] - 27)
+    Q = S.recover(digest(m, sh=_h_latin1_when_representable if mut == "latin1_when_representable" else _h), r, s, b[64] - 27)
     if Q is None:
         return "reject", "unrecoverable"
     return ("valid", None) if S.address(Q) == signer else ("reject", "signer_mismatch")
 
 
 MANIFEST = os.path.join(HERE, "EIP712_MANIFEST.json")
-ORIGIN_CLASSES = ("synthetic", "live-ledger-derived", "contributed")
+ORIGIN_CLASSES = ("synthetic", "live-ledger", "live-ledger-derived", "contributed")
+
+MUTANTS = {   # each is a plausible one-site broken verifier; the suite must fail it on the named vector
+    "no_low_s_check": "en6-high-s-malleated",
+    "v_normalized": "en20-recovery-byte-zero",
+    "no_version_check": "en17-unsupported-version",
+    "extra_field_ignored": "en11-extra-field",
+    "extra_top_level_key_ignored": "en18-top-level-extra-key",
+    "transaction_filled_empty": "en10-field-missing",
+    "latin1_when_representable": "ep6-non-ascii-latin1-range-string",
+    "uint_cap_2_53": "ep7-issuedat-max-uint256",
+    "uint_cap_2_64": "ep7-issuedat-max-uint256",
+    "no_uint_upper_bound": "en25-issuedat-2pow256",
+    "integral_float_as_int": "en26-version-integral-float-token",
+    "signature_before_payload": "en27-malformed-payload-and-signature",
+}
 
 
 def _no_dup_keys(pairs):
@@ -151,10 +196,33 @@ def load_set():
     problems += [f"vector uses an undeclared reason: {r}" for r in sorted(exercised - set(REJECT_REASONS) - {None})]
     if len(vecs) != len(m["vectors"]):
         problems.append(f"loaded {len(vecs)} vectors for {len(m['vectors'])} MANIFEST entries")
+    problems += [f"mutant {n} names a missing vector {vid}" for n, vid in MUTANTS.items() if vid not in vecs]
     return vecs, problems
 
 
+def mutants():
+    vecs, problems = load_set()
+    bad = len(problems)
+    for p in problems:
+        print("SET  ", p)
+    for name, vid in MUTANTS.items():
+        if vid not in vecs:
+            continue
+        v = vecs[vid]
+        try:
+            got, why = check(v["input"], name)
+        except Exception as exc:   # a crash is not a reject: the mutant fails the vector
+            got, why = "crash", type(exc).__name__
+        killed = not (got == v["expect"] and why == v.get("reject_reason"))
+        bad += not killed
+        print(f"{'killed  ' if killed else 'SURVIVED'} mutant {name:28s} by {vid} (mutant says {got}{' '+why if why else ''})")
+    print(f"{len(MUTANTS) - bad}/{len(MUTANTS)} mutants killed" if not problems else "set problems above")
+    return 1 if bad else 0
+
+
 def main():
+    if "--mutants" in sys.argv:
+        return mutants()
     vecs, problems = load_set()
     bad = len(problems)
     for p in problems:
